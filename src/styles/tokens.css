@@ -1,0 +1,413 @@
+/* Reducto Design System — Core Colors & Type
+   Source: Figma tokens + ui/tokens/index.css from the codebase.
+   Import this file in any HTML to get the full token set. */
+
+/* ============================================================
+   FONTS
+   ============================================================ */
+
+@font-face {
+    font-family: "Roobert";
+    src: url("/fonts/Roobert-Regular.otf") format("opentype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Roobert";
+    src: url("/fonts/Roobert-Medium.otf") format("opentype");
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Berkeley Mono";
+    src: url("/fonts/BerkeleyMono-Regular.otf") format("opentype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Reducto Serif";
+    src: url("/fonts/reducto-serif-regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    /* ============================================================
+       PRIMITIVE COLOR SCALES (Light mode — default)
+       ============================================================ */
+
+    --base-white: #ffffff;
+    --base-black: #000000;
+
+    /* Neutral — Grey (primary neutral scale) */
+    --grey-50:  #fafafa;
+    --grey-100: #f5f5f5;
+    --grey-200: #e5e5e5;
+    --grey-300: #d4d4d4;
+    --grey-400: #a3a3a3;
+    --grey-500: #737373;
+    --grey-600: #525252;
+    --grey-700: #404040;
+    --grey-800: #262626;
+    --grey-900: #171717;
+    --grey-950: #0a0a0a;
+
+    /* Brand — Plum (primary brand) */
+    --plum-50:  #f4ebf1;
+    --plum-100: #f2e0ec;
+    --plum-200: #e3bdd6;
+    --plum-300: #d59dc3;
+    --plum-400: #be7dac;
+    --plum-500: #a15c8f;
+    --plum-600: #8a3d76;
+    --plum-700: #6f255b;
+    --plum-800: #4b163d;   /* logo / primary brand hex */
+    --plum-900: #380f2d;
+    --plum-950: #1e0517;
+
+    /* Accent — Slate (cool blue) */
+    --slate-50:  #e2e7ec;
+    --slate-100: #d7dbe4;
+    --slate-200: #b2bbd2;
+    --slate-300: #91a3ca;
+    --slate-400: #6b89c0;
+    --slate-500: #5270a4;
+    --slate-600: #3a5786;
+    --slate-700: #274067;
+    --slate-800: #142b4b;
+    --slate-900: #0d1a2d;
+    --slate-950: #070e1b;
+
+    /* Accent — Pine (success / positive) */
+    --pine-50:  #e9edea;
+    --pine-100: #d2dfd9;
+    --pine-200: #b2d1c3;
+    --pine-300: #8cc5aa;
+    --pine-400: #66b892;
+    --pine-500: #46a579;
+    --pine-600: #34845f;
+    --pine-700: #236145;
+    --pine-800: #143d2a;
+    --pine-900: #0b1e15;
+    --pine-950: #060f0b;
+
+    /* Accent — Rust (warm orange) */
+    --rust-50:  #efe8e3;
+    --rust-100: #edd9d4;
+    --rust-200: #edbaa9;
+    --rust-300: #e5a087;
+    --rust-400: #da8660;
+    --rust-500: #c5744b;
+    --rust-600: #ad6137;
+    --rust-700: #934f27;
+    --rust-800: #7a3d14;
+    --rust-900: #401f0c;
+    --rust-950: #281206;
+
+    /* Accent — Carmine (destructive / error) */
+    --carmine-50:  #ebe3e2;
+    --carmine-100: #e0cccd;
+    --carmine-200: #dbabae;
+    --carmine-300: #dd8184;
+    --carmine-400: #d35b61;
+    --carmine-500: #b33c41;
+    --carmine-600: #91252b;
+    --carmine-700: #6b171b;
+    --carmine-800: #46070b;
+    --carmine-900: #2e0506;
+    --carmine-950: #150405;
+
+    /* Accent — Honey (warning / highlight) */
+    --honey-50:  #f1ede2;
+    --honey-100: #ede2c9;
+    --honey-200: #ecd6ac;
+    --honey-300: #ebcb89;
+    --honey-400: #ebbd60;
+    --honey-500: #dba943;
+    --honey-600: #c18d25;
+    --honey-700: #aa7c1d;
+    --honey-800: #835f16;
+    --honey-900: #42300b;
+    --honey-950: #231906;
+
+    /* Accent — Espresso (dark warm brown) */
+    --espresso-50:  #f6eee5;
+    --espresso-100: #edd9c6;
+    --espresso-200: #d9ba9e;
+    --espresso-300: #c09a77;
+    --espresso-400: #a67d5a;
+    --espresso-500: #896249;
+    --espresso-600: #6e4d37;
+    --espresso-700: #573a26;
+    --espresso-800: #40291a;
+    --espresso-900: #2b1a0e;
+    --espresso-950: #190e06;
+
+    /* ============================================================
+       SEMANTIC COLOR TOKENS
+       ============================================================ */
+
+    /* Surface */
+    --bg:               var(--grey-50);   /* app background */
+    --bg-secondary:     var(--grey-50);
+    --bg-inverse:       #1d1d1d;
+    --surface:          var(--base-white); /* card surface */
+    --surface-hover:    var(--grey-50);
+    --surface-pressed:  var(--grey-100);
+
+    /* Text */
+    --fg:               var(--grey-950);
+    --fg-primary:       var(--grey-900);
+    --fg-secondary:     var(--grey-500);
+    --fg-disabled:      var(--grey-400);
+    --fg-error:         var(--carmine-600);
+    --fg-inverse:       var(--plum-50);
+    --fg-inverse-primary:   var(--grey-50);
+    --fg-inverse-secondary: var(--grey-300);
+
+    /* Border */
+    --border:           var(--grey-300);
+    --border-subtle:    var(--grey-200);
+    --border-hover:     var(--grey-400);
+    --border-active:    var(--plum-700);
+
+    /* Icon */
+    --icon:             var(--grey-900);
+    --icon-hover:       var(--grey-600);
+    --icon-disabled:    var(--grey-400);
+    --icon-inverse:     var(--grey-50);
+
+    /* Focus */
+    --focus-ring:       var(--plum-200);
+    --focus-ring-destructive: var(--carmine-200);
+
+    /* Brand */
+    --brand:            var(--plum-800);
+    --brand-fg:         var(--plum-50);
+    --brand-subtle-bg:  var(--plum-50);
+
+    /* ============================================================
+       SHADOWS / ELEVATION
+       ============================================================ */
+    --shadow-xs:   0px 1px 2px 0px hsla(60, 2%, 10%, 0.05);
+    --shadow-sm:   0 8px 24px -4px rgba(15, 16, 20, 0.1);
+    --shadow-md:   0 12px 32px 4px rgba(15, 16, 20, 0.1);
+    --shadow-card: 0px 0px 4px 0px rgba(26, 26, 25, 0.12),
+                   0px 8px 16px 0px rgba(26, 26, 25, 0.10);
+    --shadow-card-soft: 0px 1px 56px 0px rgba(12, 10, 9, 0.04);
+    --shadow-tooltip: 0px 1px 6px 0px rgba(26, 26, 25, 0.08),
+                      0px 1px 2px 0px rgba(26, 26, 25, 0.12);
+
+    /* ============================================================
+       SPACING (4px baseline)
+       ============================================================ */
+    --space-0-5: 2px;
+    --space-1:   4px;
+    --space-1-5: 6px;
+    --space-2:   8px;
+    --space-2-5: 10px;
+    --space-3:   12px;
+    --space-3-5: 14px;
+    --space-4:   16px;
+    --space-6:   24px;
+    --space-8:   32px;
+    --space-9:   36px;
+    --space-10:  40px;
+    --space-12:  48px;
+    --space-14:  56px;
+    --space-15:  60px;
+    --space-16:  64px;
+    --space-18:  72px;
+
+    /* ============================================================
+       BORDER RADIUS
+       ============================================================ */
+    --radius-sm:   4px;
+    --radius-md:   8px;
+    --radius-lg:   10px;
+    --radius-xl:   12px;
+    --radius-full: 9999px;
+
+    /* Border widths */
+    --border-width-xs: 0.5px;
+    --border-width-sm: 1px;
+    --border-width-md: 2px;
+
+    /* ============================================================
+       TYPOGRAPHY — FAMILIES
+       ============================================================ */
+    --font-sans: "Roobert", ui-sans-serif, system-ui, -apple-system,
+                 "Segoe UI", Arial, sans-serif;
+    --font-serif: "Reducto Serif", "Source Serif Pro", Georgia, serif;
+    --font-mono: "Berkeley Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    /* ============================================================
+       TYPOGRAPHY — TYPE SCALE
+       The system is intentionally tight: most UI text sits at 12–14px.
+       ============================================================ */
+
+    /* Sizes */
+    --fs-xs-1: 12px;
+    --fs-xs-2: 13px;
+    --fs-sm:   14px;
+    --fs-md:   16px;
+    --fs-lg-1: 20px;
+    --fs-lg-2: 24px;
+    --fs-xl:   32px;
+    --fs-2xl:  40px;
+    --fs-3xl:  56px;
+
+    /* Weights */
+    --fw-regular: 400;
+    --fw-medium:  500;
+    --fw-semibold: 600;
+
+    /* Line heights */
+    --lh-xs:   16px;
+    --lh-sm:   20px;
+    --lh-md:   24px;
+    --lh-lg-1: 28px;
+    --lh-lg-2: 32px;
+    --lh-xl:   40px;
+
+    --letter-spacing-default: 0px;
+    --letter-spacing-tight: -0.01em;
+}
+
+/* ============================================================
+   SEMANTIC TYPE RULES
+   Use these directly: <h1 class="h1">, <p class="body">, etc.
+   Or rely on the element tag — defaults below target raw tags.
+   ============================================================ */
+
+html, body {
+    font-family: var(--font-sans);
+    font-size: var(--fs-xs-2);     /* 13px base — tight like the product */
+    line-height: var(--lh-xs);
+    color: var(--fg-primary);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: 0;
+}
+
+/* Display (serif, for marketing/hero) */
+.display-xl, h1.display {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: var(--fs-3xl);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+}
+.display-lg {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: var(--fs-2xl);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+}
+
+/* Headings (sans — Roobert Medium) */
+h1, .h1 {
+    font-family: var(--font-sans);
+    font-weight: 500;
+    font-size: var(--fs-xl);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+}
+h2, .h2 {
+    font-family: var(--font-sans);
+    font-weight: 500;
+    font-size: var(--fs-lg-2);
+    line-height: var(--lh-lg-2);
+    color: var(--fg);
+}
+h3, .h3 {
+    font-family: var(--font-sans);
+    font-weight: 500;
+    font-size: var(--fs-lg-1);
+    line-height: var(--lh-lg-1);
+    color: var(--fg);
+}
+h4, .h4 {
+    font-family: var(--font-sans);
+    font-weight: 500;
+    font-size: var(--fs-md);
+    line-height: var(--lh-md);
+    color: var(--fg);
+}
+
+/* Body */
+.body-lg {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: var(--fs-sm);
+    line-height: var(--lh-sm);
+}
+.body, p {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: var(--fs-xs-2);
+    line-height: var(--lh-xs);
+    color: var(--fg-primary);
+}
+.body-sm, small {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: var(--fs-xs-1);
+    line-height: var(--lh-xs);
+    color: var(--fg-secondary);
+}
+
+/* Labels / UI */
+.label {
+    font-family: var(--font-sans);
+    font-weight: 500;
+    font-size: var(--fs-xs-2);
+    line-height: var(--lh-xs);
+    color: var(--fg);
+}
+.label-sm {
+    font-family: var(--font-sans);
+    font-weight: 500;
+    font-size: var(--fs-xs-1);
+    line-height: var(--lh-xs);
+    color: var(--fg);
+}
+.caption {
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-size: var(--fs-xs-1);
+    line-height: var(--lh-xs);
+    color: var(--fg-secondary);
+}
+
+/* Mono */
+code, .code, kbd, pre, .mono {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-sm);
+}
+
+/* Inline muted / subtle */
+.muted { color: var(--fg-secondary); }
+.dim   { color: var(--fg-disabled); }
+
+/* Links */
+a, .link {
+    color: var(--plum-700);
+    text-decoration: none;
+    transition: color 0.12s ease;
+}
+a:hover, .link:hover { color: var(--plum-800); }
+a:active, .link:active { color: var(--plum-900); }

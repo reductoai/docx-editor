@@ -1,0 +1,357 @@
+/* ============================================================
+   DOCX panel — left pane wrapper, title bar, editor chrome
+   ============================================================ */
+
+.docx-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg);
+  position: relative;
+}
+
+/* ------------------------------------------------------------
+   Empty state / drop zone
+   ------------------------------------------------------------ */
+
+.docx-panel__empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12);
+}
+
+.docx-panel__dropzone {
+  width: min(640px, 100%);
+  padding: 64px 32px;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  text-align: center;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.docx-panel__dropzone--active {
+  border-color: var(--brand);
+  background: var(--brand-subtle-bg);
+}
+
+.docx-panel__dropzone h2 {
+  font-family: var(--font-serif);
+  font-size: var(--fs-lg-2);
+  font-weight: 400;
+  margin: 0 0 var(--space-2) 0;
+  color: var(--fg-primary);
+}
+
+.docx-panel__dropzone p {
+  margin: 0 0 var(--space-4) 0;
+  color: var(--fg-secondary);
+  font-size: var(--fs-sm);
+}
+
+.docx-panel__dropzone-actions {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: center;
+}
+
+.docx-panel__error {
+  color: var(--fg-error);
+  margin-top: var(--space-4);
+  font-size: var(--fs-xs-2);
+}
+
+/* ------------------------------------------------------------
+   Editor host (once a workspace is loaded)
+   ------------------------------------------------------------ */
+
+.docx-panel__editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.docx-panel__status {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-secondary);
+  font-size: var(--fs-xs-2);
+  padding: var(--space-12);
+}
+
+.docx-panel__status--error {
+  color: var(--fg-error);
+}
+
+.docx-panel__toast {
+  position: absolute;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-inverse);
+  color: var(--fg-inverse-primary);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-xs-2);
+  box-shadow: var(--shadow-md);
+  z-index: 40;
+  max-width: min(520px, calc(100% - var(--space-8)));
+  text-align: center;
+}
+
+/* ------------------------------------------------------------
+   Title bar
+   ------------------------------------------------------------ */
+
+.docx-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-subtle);
+  min-height: 48px;
+  flex-shrink: 0;
+}
+
+.docx-titlebar__left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  flex: 1;
+}
+
+.docx-titlebar__name,
+.docx-titlebar__name-input {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--fg-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docx-titlebar__name {
+  cursor: text;
+  text-align: left;
+}
+
+.docx-titlebar__name:hover {
+  background: var(--surface-hover);
+}
+
+.docx-titlebar__name-input {
+  outline: none;
+  border-color: var(--border-active);
+  background: var(--bg);
+  min-width: 200px;
+}
+
+.docx-titlebar__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  color: var(--fg-secondary);
+  font-size: var(--fs-xs-1);
+  font-weight: var(--fw-medium);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--grey-100);
+  white-space: nowrap;
+}
+
+.docx-titlebar__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--grey-400);
+  flex-shrink: 0;
+}
+
+.docx-titlebar__status--idle .docx-titlebar__status-dot {
+  background: var(--grey-400);
+}
+
+.docx-titlebar__status--thinking .docx-titlebar__status-dot {
+  background: var(--honey-500);
+  animation: docx-pulse 1.4s ease-in-out infinite;
+}
+
+.docx-titlebar__status--editing .docx-titlebar__status-dot {
+  background: var(--pine-500);
+  animation: docx-pulse 1.4s ease-in-out infinite;
+}
+
+.docx-titlebar__status--error .docx-titlebar__status-dot {
+  background: var(--carmine-500);
+}
+
+@keyframes docx-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.docx-titlebar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* ------------------------------------------------------------
+   Buttons (local to docx chrome — keeps chat-owned styles untouched)
+   ------------------------------------------------------------ */
+
+.docx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1-5);
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs-2);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-xs);
+  padding: var(--space-1-5) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease,
+    border-color 120ms ease, box-shadow 120ms ease;
+  white-space: nowrap;
+}
+
+.docx-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.docx-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.docx-btn--primary {
+  background: var(--brand);
+  color: var(--brand-fg);
+  border-color: var(--brand);
+}
+
+.docx-btn--primary:hover:not(:disabled) {
+  background: var(--plum-700);
+  border-color: var(--plum-700);
+}
+
+.docx-btn--primary:active:not(:disabled) {
+  background: var(--plum-900);
+  border-color: var(--plum-900);
+}
+
+.docx-btn--outline {
+  background: var(--surface);
+  color: var(--fg-primary);
+  border-color: var(--border);
+}
+
+.docx-btn--outline:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+}
+
+.docx-btn--ghost {
+  background: transparent;
+  color: var(--fg-primary);
+  border-color: transparent;
+}
+
+.docx-btn--ghost:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+/* ============================================================
+   Reducto theme overrides for @eigenpal/docx-js-editor
+   Editor renders ProseMirror-based DOM: .prosemirror-editor,
+   .prosemirror-editor-wrapper, .ProseMirror. Track-changes
+   wrappers are w:ins/w:del — classnames are inspected at runtime
+   and these selectors cover both documented and observed surfaces.
+   ============================================================ */
+
+.docx-panel__editor .prosemirror-editor-wrapper {
+  background: var(--bg);
+  min-height: 100%;
+}
+
+.docx-panel__editor .prosemirror-editor .ProseMirror {
+  box-shadow: var(--shadow-card-soft);
+  border-radius: var(--radius-sm);
+}
+
+/* Selection color — align with brand. */
+.docx-panel__editor .prosemirror-editor .ProseMirror ::selection {
+  background: var(--plum-200);
+}
+
+.docx-panel__editor .prosemirror-editor .ProseMirror ::-moz-selection {
+  background: var(--plum-200);
+}
+
+/* Track-change marks. The library emits classes like `docx-ins` /
+   `docx-del` and may also use `tracked-insert` / `tracked-delete`.
+   Style both so the Reducto look applies regardless of which
+   surfaces the installed version uses at runtime. */
+
+.docx-panel__editor .docx-ins,
+.docx-panel__editor .tracked-insert,
+.docx-panel__editor ins {
+  color: var(--pine-700);
+  background: rgba(52, 132, 95, 0.08);
+  text-decoration: underline;
+  text-decoration-color: var(--pine-500);
+  text-underline-offset: 2px;
+}
+
+.docx-panel__editor .docx-del,
+.docx-panel__editor .tracked-delete,
+.docx-panel__editor del {
+  color: var(--carmine-700);
+  background: rgba(179, 60, 65, 0.08);
+  text-decoration: line-through;
+  text-decoration-color: var(--carmine-500);
+}
+
+/* Comment highlight — keep subtle. */
+.docx-panel__editor .docx-comment,
+.docx-panel__editor .comment-highlight {
+  background: rgba(219, 169, 67, 0.18);
+  border-bottom: 1px dashed var(--honey-600);
+}
+
+/* Drop cursor / active indicators retinted. */
+.docx-panel__editor .prosemirror-editor .ProseMirror .pm-drop-indicator,
+.docx-panel__editor .prosemirror-editor .ProseMirror .ProseMirror-dropcursor {
+  background: var(--brand);
+}
+
+/* Links inside the document use brand plum for consistency. */
+.docx-panel__editor .prosemirror-editor .ProseMirror a {
+  color: var(--plum-700);
+}
+
+.docx-panel__editor .prosemirror-editor .ProseMirror a:hover {
+  color: var(--plum-800);
+}
