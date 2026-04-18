@@ -158,6 +158,15 @@
   background: var(--plum-800);
   color: #fff;
 }
+/* Consecutive messages from the same role share a single visual "turn".
+   We keep the avatar gutter so the body stays aligned, but hide its
+   background + content. Also tighten the top gap so the group reads as one. */
+.msg--continuation {
+  margin-top: -6px;
+}
+.msg--continuation .msg-avatar {
+  background: transparent !important;
+}
 .msg-body {
   flex: 1;
   min-width: 0;
@@ -747,4 +756,20 @@
 }
 .chat-metrics__sep {
   opacity: 0.5;
+}
+.chat-metrics__export {
+  margin-left: auto;
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg-secondary);
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.chat-metrics__export:hover {
+  text-decoration-color: var(--fg-primary);
+  background: var(--surface-hover);
 }

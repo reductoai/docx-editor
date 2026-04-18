@@ -1,6 +1,13 @@
 import { watch, type FSWatcher } from "node:fs";
-import { writeFile } from "node:fs/promises";
-import { closeSession, openSession, saveDocument } from "./headless-word";
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import {
+  closeSession,
+  listSessions,
+  openSession,
+  saveDocument,
+  saveSessionInPlace,
+} from "./headless-word";
 import { publish } from "./sse";
 import { getWorkspace, type Workspace } from "./workspace";
 import { appendActivity } from "./activity";
@@ -82,32 +89,38 @@ async function fire(state: CheckpointState): Promise<void> {
 
   try {
     const { workspace } = state;
-    let bytes: Buffer | null = null;
     try {
-      const session = await openSession(workspace.workingPath);
-      try {
-        bytes = await saveDocument(session);
-      } finally {
-        await closeSession(session);
+      // CRITICAL: the agent is mutating an in-memory headless-word session
+      // whose id lives in `headless_word_session.json`. We MUST save that
+      // session in-place (no --path) so (a) the edits hit working.docx and
+      // (b) the session remains valid for subsequent agent calls. A fresh
+      // open() would serialize the stale on-disk DOCX and wipe the agent's
+      // edits from the checkpoint.
+      state.suppressNextWatchUntil = Date.now() + 1500;
+      const sharedSessionId = await readSharedSessionId(workspace);
+      if (sharedSessionId) {
+        await saveSessionInPlace(sharedSessionId);
+      } else {
+        const session = await openSession(workspace.workingPath);
+        try {
+          const bytes = await saveDocument(session);
+          await writeFile(workspace.workingPath, bytes);
+        } finally {
+          await closeSession(session);
+        }
       }
     } catch (err) {
-      // headless-word failure: fall back to the on-disk working.docx as-is.
+      // headless-word failure: leave working.docx as-is and surface the
+      // error on the SSE stream so the UI can flag it.
       const message = err instanceof Error ? err.message : String(err);
       console.warn(
-        `[checkpoint] headless-word unavailable for workspace=${workspace.id}, using raw working.docx:`,
+        `[checkpoint] headless-word save failed for workspace=${workspace.id}:`,
         message,
       );
       publish(workspace.id, {
         kind: "error",
-        message: `Checkpoint normalization skipped: ${message}`,
+        message: `Checkpoint save failed: ${message}`,
       });
-      bytes = null;
-    }
-
-    if (bytes) {
-      // Suppress our own fs-watch tick so the write-back doesn't re-enqueue us.
-      state.suppressNextWatchUntil = Date.now() + 1500;
-      await writeFile(workspace.workingPath, bytes);
     }
 
     state.seq += 1;
@@ -201,6 +214,33 @@ export async function ensureCheckpointState(workspaceId: string): Promise<void> 
  * TODO: no caller currently wires this up; hook it into workspace-delete /
  * process-shutdown once there's a natural place for it.
  */
+/**
+ * Reads the shared headless-word session id this workspace registered in
+ * `ensureHeadlessSession`. Returns null if the file is missing, the id is
+ * shaped like our workspace id (a stale placeholder from an earlier seeding),
+ * or headless-word no longer knows about the session.
+ */
+async function readSharedSessionId(workspace: Workspace): Promise<string | null> {
+  try {
+    const raw = await readFile(
+      path.join(workspace.dir, "headless_word_session.json"),
+      "utf-8",
+    );
+    const parsed = JSON.parse(raw) as { session_id?: unknown };
+    if (typeof parsed.session_id !== "string" || !parsed.session_id.trim()) {
+      return null;
+    }
+    const id = parsed.session_id.trim();
+    // Reject stale placeholders (we used to write the workspace id here).
+    if (id === workspace.id) return null;
+    const sessions = await listSessions();
+    if (!sessions[id]) return null;
+    return id;
+  } catch {
+    return null;
+  }
+}
+
 export function teardownWorkspace(workspaceId: string): void {
   const state = states.get(workspaceId);
   if (!state) return;

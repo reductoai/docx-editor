@@ -28,9 +28,20 @@ export default function Conversation({ messages, density }: Props) {
 
   return (
     <div className="chat-scroll" ref={ref}>
-      {messages.map((m) => (
-        <Message key={m.id} message={m} density={density} />
-      ))}
+      {messages.map((m, i) => {
+        // Group consecutive assistant messages into a visual "turn": only the
+        // first one in the run renders the avatar + "Reducto" label.
+        const prev = i > 0 ? messages[i - 1] : null;
+        const showHeader = !prev || prev.role !== m.role;
+        return (
+          <Message
+            key={m.id}
+            message={m}
+            density={density}
+            showHeader={showHeader}
+          />
+        );
+      })}
     </div>
   );
 }

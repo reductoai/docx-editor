@@ -27,17 +27,10 @@ try {
 }
 
 try {
-  const { toolsRouter } = await import("./src/server/routes/tools");
-  app.route("/api/tools", toolsRouter);
+  const { chatRouter } = await import("./src/server/routes/chat");
+  app.route("/api/chat", chatRouter);
 } catch (err) {
-  console.warn("[server] tools router not mounted:", (err as Error).message);
-}
-
-try {
-  const { llmRouter } = await import("./src/server/routes/llm");
-  app.route("/api/llm", llmRouter);
-} catch (err) {
-  console.warn("[server] llm router not mounted:", (err as Error).message);
+  console.warn("[server] chat router not mounted:", (err as Error).message);
 }
 
 const port = Number(process.env.PORT ?? 3000);
@@ -45,6 +38,10 @@ const port = Number(process.env.PORT ?? 3000);
 export default {
   port,
   fetch: app.fetch,
+  // Bun's default idleTimeout is 10s, which kills long-lived SSE
+  // connections (`/api/workspaces/:id/events`). 0 disables the timeout
+  // entirely; with heartbeats every 15s this keeps SSE open indefinitely.
+  idleTimeout: 0,
 };
 
 console.log(`[server] listening on http://localhost:${port}`);

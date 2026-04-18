@@ -1,9 +1,10 @@
-// React hook that bridges pi-agent-core events into the chat message shape
-// consumed by `Conversation` / `Message`.
+// React hook that drives the chat UI by POSTing turns to the server-side
+// agent at /api/chat/turn and consuming the SSE event stream back.
+//
+// The agent loop lives on the server (pi-coding-agent with createCodingTools)
+// — this hook is purely a transport + reducer.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Agent, AgentEvent } from "@mariozechner/pi-agent-core";
-import { createAgent } from "../agent/agent";
 import { formatToolExecutionLabel } from "../agent/labels";
 import type {
   ChatMessage,
@@ -11,6 +12,29 @@ import type {
   TextBlock,
   ToolBlock,
 } from "../lib/chat-types";
+
+// Shape of the AgentEvent union pi-agent-core emits. We only depend on the
+// discriminated `type` + the fields each variant carries, so we type them
+// locally rather than dragging pi-agent-core into the client bundle.
+type AgentEvent =
+  | { type: "agent_start" }
+  | { type: "agent_end"; messages: unknown[] }
+  | { type: "turn_start" }
+  | { type: "turn_end"; message: unknown; toolResults: unknown[] }
+  | { type: "message_start"; message: { role: "user" | "assistant" } }
+  | { type: "message_update"; message: unknown; assistantMessageEvent: AssistantSubEvent }
+  | { type: "message_end"; message: { usage?: { input?: number; output?: number } } }
+  | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: unknown }
+  | { type: "tool_execution_update"; toolCallId: string; toolName: string; args: unknown; partialResult: unknown }
+  | { type: "tool_execution_end"; toolCallId: string; toolName: string; result: unknown; isError: boolean };
+
+type AssistantSubEvent =
+  | { type: "text_delta"; delta: string }
+  | {
+      type: "toolcall_start" | "toolcall_delta" | "toolcall_end";
+      partial: { content: Array<{ type: string; id?: string; name?: string; arguments?: unknown }> };
+      contentIndex: number;
+    };
 
 export interface AgentChatState {
   messages: ChatMessage[];
@@ -22,6 +46,8 @@ export interface AgentChatState {
   sendMessage: (text: string) => Promise<void>;
   cancel: () => void;
   dismissError: () => void;
+  /** Download a debug bundle (JSON) of the current session's trace. */
+  exportTrace: () => Promise<void>;
 }
 
 const NOOP_STATE: AgentChatState = {
@@ -34,6 +60,7 @@ const NOOP_STATE: AgentChatState = {
   sendMessage: async () => undefined,
   cancel: () => undefined,
   dismissError: () => undefined,
+  exportTrace: async () => undefined,
 };
 
 function uid(prefix: string) {
@@ -142,9 +169,45 @@ function makeToolBlockId(toolCallId: string) {
 }
 
 function getToolCallId(block: ToolBlock): string {
-  // IDs are prefixed by `makeToolBlockId`; fall back to the raw id if someone
-  // registered a block without our prefix.
   return block.id.startsWith("tool-") ? block.id.slice(5) : block.id;
+}
+
+// ---------------------------------------------------------------------------
+// SSE frame parser: consumes `ReadableStream<Uint8Array>` and yields parsed
+// `{ event, data }` frames. Ignores `: comment` lines used for heartbeats.
+// ---------------------------------------------------------------------------
+async function* iterateSseFrames(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+): AsyncGenerator<{ event: string; data: string }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    while (true) {
+      if (signal.aborted) return;
+      const { value, done } = await reader.read();
+      if (done) return;
+      buf += decoder.decode(value, { stream: true });
+      let sep: number;
+      while ((sep = buf.indexOf("\n\n")) !== -1) {
+        const block = buf.slice(0, sep);
+        buf = buf.slice(sep + 2);
+        if (!block.trim()) continue;
+        let ev = "message";
+        let data = "";
+        for (const line of block.split("\n")) {
+          if (line.startsWith(":")) continue;
+          if (line.startsWith("event:")) ev = line.slice(6).trim();
+          else if (line.startsWith("data:"))
+            data += (data ? "\n" : "") + line.slice(5).trim();
+        }
+        yield { event: ev, data };
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -156,42 +219,44 @@ export function useAgent(workspaceId: string | null): AgentChatState {
   const [tokensIn, setTokensIn] = useState(0);
   const [tokensOut, setTokensOut] = useState(0);
   const [lastToolName, setLastToolName] = useState<string | null>(null);
-  const agentRef = useRef<Agent | null>(null);
   const currentAssistantIdRef = useRef<string | null>(null);
+  const inFlightRef = useRef<AbortController | null>(null);
+  // Ring-buffered raw event log for debug trace exports.
+  const eventLogRef = useRef<Array<{ ts: string; event: unknown }>>([]);
+  const MAX_EVENT_LOG = 2000;
 
-  const teardown = useCallback(() => {
-    const agent = agentRef.current;
-    if (agent) {
-      try {
-        agent.abort();
-      } catch {
-        // ignore
-      }
+  // Reset when the workspace changes (or clears).
+  useEffect(() => {
+    // Abort any in-flight turn — the new workspace has its own transcript.
+    if (inFlightRef.current) {
+      try { inFlightRef.current.abort(); } catch { /* ignore */ }
+      inFlightRef.current = null;
     }
-    agentRef.current = null;
     currentAssistantIdRef.current = null;
+    eventLogRef.current = [];
     setMessages([]);
     setIsStreaming(false);
     setErrorMessage(null);
     setTokensIn(0);
     setTokensOut(0);
     setLastToolName(null);
-  }, []);
+  }, [workspaceId]);
 
   const dismissError = useCallback(() => setErrorMessage(null), []);
 
-  // Build / tear down the agent when workspaceId changes.
-  useEffect(() => {
-    if (!workspaceId) {
-      teardown();
-      return undefined;
-    }
+  const sendMessage = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || !workspaceId) return;
+      if (inFlightRef.current) return; // ignore while a turn is running
 
-    const agent = createAgent(workspaceId);
-    agentRef.current = agent;
+      setMessages((prev) => appendUserMessage(prev, trimmed));
+      setErrorMessage(null);
 
-    const unsubscribe = agent.subscribe((event: AgentEvent) => {
-      handleEvent(event, {
+      const controller = new AbortController();
+      inFlightRef.current = controller;
+
+      const handlers: Handlers = {
         setMessages,
         setIsStreaming,
         setErrorMessage,
@@ -199,44 +264,130 @@ export function useAgent(workspaceId: string | null): AgentChatState {
         setTokensOut,
         setLastToolName,
         currentAssistantIdRef,
-      });
-    });
+      };
 
-    return () => {
-      unsubscribe();
       try {
-        agent.abort();
-      } catch {
-        // ignore
+        setIsStreaming(true);
+        const res = await fetch("/api/chat/turn", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify({ workspaceId, userText: trimmed }),
+          signal: controller.signal,
+        });
+        if (!res.ok || !res.body) {
+          let detail = `HTTP ${res.status}`;
+          try {
+            const payload = (await res.json()) as { error?: string };
+            if (payload?.error) detail = payload.error;
+          } catch { /* ignore */ }
+          setErrorMessage(detail);
+          return;
+        }
+
+        for await (const frame of iterateSseFrames(res.body, controller.signal)) {
+          if (!frame.data) continue;
+          let payload: unknown;
+          try {
+            payload = JSON.parse(frame.data);
+          } catch {
+            continue;
+          }
+          const log = eventLogRef.current;
+          log.push({ ts: new Date().toISOString(), event: payload });
+          if (log.length > MAX_EVENT_LOG) log.splice(0, log.length - MAX_EVENT_LOG);
+
+          if (frame.event === "error") {
+            const msg = (payload as { message?: string })?.message;
+            if (msg && !isAbortString(msg)) setErrorMessage(msg);
+            continue;
+          }
+          if (frame.event === "done") continue;
+          // Everything else is an AgentSessionEvent.
+          handleEvent(payload as AgentEvent, handlers);
+        }
+      } catch (err) {
+        if (!isAbortError(err)) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!isAbortString(msg)) setErrorMessage(msg);
+        }
+      } finally {
+        if (inFlightRef.current === controller) inFlightRef.current = null;
+        setIsStreaming(false);
+        currentAssistantIdRef.current = null;
       }
-      if (agentRef.current === agent) {
-        agentRef.current = null;
-      }
-    };
-  }, [workspaceId, teardown]);
-
-  const sendMessage = useCallback(async (text: string) => {
-    const agent = agentRef.current;
-    const trimmed = text.trim();
-    if (!trimmed || !agent) return;
-
-    // Append the user message to our local transcript immediately so the UI
-    // shows it without waiting for the (user) `message_start` event.
-    setMessages((prev) => appendUserMessage(prev, trimmed));
-    setErrorMessage(null);
-
-    try {
-      await agent.prompt(trimmed);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setErrorMessage(message);
-    }
-  }, []);
+    },
+    [workspaceId],
+  );
 
   const cancel = useCallback(() => {
-    const agent = agentRef.current;
-    if (agent) agent.abort();
-  }, []);
+    const controller = inFlightRef.current;
+    if (!controller || !workspaceId) return;
+    // Abort our SSE read — the server's `cancel()` hook will fire via the
+    // aborted connection. Also POST /api/chat/cancel as a belt+suspenders in
+    // case the server's stream cancel doesn't propagate quickly.
+    try { controller.abort(); } catch { /* ignore */ }
+    void fetch("/api/chat/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceId }),
+    }).catch(() => undefined);
+  }, [workspaceId]);
+
+  const exportTrace = useCallback(async () => {
+    if (!workspaceId) return;
+    let serverActivity: unknown = null;
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/activity`);
+      if (res.ok) serverActivity = await res.json();
+      else serverActivity = { error: `HTTP ${res.status}` };
+    } catch (err) {
+      serverActivity = { error: (err as Error).message };
+    }
+
+    const bundle = {
+      exportedAt: new Date().toISOString(),
+      workspaceId,
+      userAgent: navigator.userAgent,
+      url: window.location.href,
+      chat: {
+        messages,
+        isStreaming,
+        errorMessage,
+        tokensIn,
+        tokensOut,
+        lastToolName,
+      },
+      events: eventLogRef.current,
+      serverActivity,
+    };
+
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const stamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .slice(0, 19);
+    a.download = `reducto-trace_${workspaceId}_${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, [
+    workspaceId,
+    messages,
+    isStreaming,
+    errorMessage,
+    tokensIn,
+    tokensOut,
+    lastToolName,
+  ]);
 
   const state = useMemo<AgentChatState>(
     () => ({
@@ -249,6 +400,7 @@ export function useAgent(workspaceId: string | null): AgentChatState {
       sendMessage,
       cancel,
       dismissError,
+      exportTrace,
     }),
     [
       messages,
@@ -260,6 +412,7 @@ export function useAgent(workspaceId: string | null): AgentChatState {
       sendMessage,
       cancel,
       dismissError,
+      exportTrace,
     ],
   );
 
@@ -317,14 +470,12 @@ function handleEvent(event: AgentEvent, h: Handlers) {
           ),
         );
       } else if (sub.type === "toolcall_start") {
-        // Read the freshly-created toolCall block from partial to grab id+name.
         const block = sub.partial.content[sub.contentIndex];
-        if (block && block.type === "toolCall") {
-          const name = block.name;
+        if (block && block.type === "toolCall" && block.id) {
+          const name = block.name ?? "tool";
           setMessages((prev) =>
             mapAssistantBlocks(prev, assistantId, (blocks) =>
-              // Mark any in-progress text as done so the stream cursor lifts.
-              upsertToolBlock(finishStreamingText(blocks), block.id, {
+              upsertToolBlock(finishStreamingText(blocks), block.id!, {
                 state: "working",
                 name,
                 label: formatToolExecutionLabel(name, block.arguments),
@@ -333,13 +484,13 @@ function handleEvent(event: AgentEvent, h: Handlers) {
           );
         }
       } else if (sub.type === "toolcall_delta" || sub.type === "toolcall_end") {
-        // Keep the label fresh as args stream in.
         const block = sub.partial.content[sub.contentIndex];
-        if (block && block.type === "toolCall") {
+        if (block && block.type === "toolCall" && block.id) {
+          const name = block.name ?? "tool";
           setMessages((prev) =>
             mapAssistantBlocks(prev, assistantId, (blocks) =>
-              updateToolBlock(blocks, block.id, {
-                label: formatToolExecutionLabel(block.name, block.arguments),
+              updateToolBlock(blocks, block.id!, {
+                label: formatToolExecutionLabel(name, block.arguments),
               }),
             ),
           );
@@ -353,9 +504,7 @@ function handleEvent(event: AgentEvent, h: Handlers) {
       setMessages((prev) =>
         mapAssistantBlocks(prev, assistantId, finishStreamingText),
       );
-      // Accumulate usage counts from assistant messages.
-      const usage = (event.message as { usage?: { input?: number; output?: number } })
-        .usage;
+      const usage = event.message?.usage;
       if (usage) {
         if (typeof usage.input === "number") setTokensIn((n) => n + usage.input!);
         if (typeof usage.output === "number") setTokensOut((n) => n + usage.output!);
@@ -389,7 +538,7 @@ function handleEvent(event: AgentEvent, h: Handlers) {
           }),
         ),
       );
-      if (event.isError && errorText) {
+      if (event.isError && errorText && !isAbortString(errorText)) {
         setErrorMessage(errorText);
       }
       break;
@@ -402,6 +551,19 @@ function handleEvent(event: AgentEvent, h: Handlers) {
     default:
       break;
   }
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!err) return false;
+  const anyErr = err as { name?: string; message?: string };
+  if (anyErr.name === "AbortError") return true;
+  return isAbortString(anyErr.message ?? "");
+}
+
+function isAbortString(msg: string): boolean {
+  return /aborted without reason|operation was aborted|The user aborted|signal is aborted/i.test(
+    msg,
+  );
 }
 
 function extractErrorText(result: unknown): string | undefined {

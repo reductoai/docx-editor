@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAgent } from "../../hooks/useAgent";
 import ChatHeader from "./ChatHeader";
 import Composer from "./Composer";
@@ -12,16 +12,6 @@ interface Props {
   documentName: string;
   /** Notifies the parent when the agent enters / exits a streaming turn. */
   onStreamingChange?: (isStreaming: boolean) => void;
-  /** Epoch ms of the most recent checkpoint applied to the editor. */
-  lastCheckpointAt?: number | null;
-}
-
-function formatClockTime(ms: number): string {
-  const d = new Date(ms);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
 }
 
 const HINTS = [
@@ -34,18 +24,15 @@ export default function ChatPanel({
   workspaceId,
   documentName,
   onStreamingChange,
-  lastCheckpointAt = null,
 }: Props) {
   const {
     messages,
     isStreaming,
     errorMessage,
-    tokensIn,
-    tokensOut,
-    lastToolName,
     sendMessage,
     cancel,
     dismissError,
+    exportTrace,
   } = useAgent(workspaceId);
   const [pillDensity, setPillDensity] = useState<PillDensity>("compact");
   // TODO(agent-authoring): wiring this to DocxEditor's `author` prop would
@@ -55,11 +42,6 @@ export default function ChatPanel({
   const [tweaksOpen, setTweaksOpen] = useState(false);
   const [prefill, setPrefillNonce] = useState<{ text: string; nonce: number } | undefined>(
     undefined,
-  );
-
-  const checkpointLabel = useMemo(
-    () => (lastCheckpointAt ? formatClockTime(lastCheckpointAt) : "—"),
-    [lastCheckpointAt],
   );
 
   // Bubble streaming transitions up to the parent so the DocxPanel can
@@ -109,15 +91,20 @@ export default function ChatPanel({
         prefill={prefill?.text}
         prefillNonce={prefill?.nonce}
       />
-      <div className="chat-metrics">
-        <span>
-          tokens: {tokensIn}/{tokensOut}
-        </span>
-        <span className="chat-metrics__sep">·</span>
-        <span>last tool: {lastToolName ?? "—"}</span>
-        <span className="chat-metrics__sep">·</span>
-        <span>last checkpoint at {checkpointLabel}</span>
-      </div>
+      {workspaceId && (
+        <div className="chat-metrics">
+          <button
+            type="button"
+            className="chat-metrics__export"
+            onClick={() => {
+              void exportTrace();
+            }}
+            title="Download the full chat trace (messages, tool calls, events, server activity) as JSON for debugging"
+          >
+            export trace
+          </button>
+        </div>
+      )}
       <TweaksPanel
         open={tweaksOpen}
         pillDensity={pillDensity}

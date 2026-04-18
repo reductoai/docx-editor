@@ -1,10 +1,12 @@
 import { Hono } from "hono";
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import {
   createWorkspace,
   getWorkspace,
   isTurnActive,
   isValidWorkspaceId,
+  resolveWithinWorkspace,
 } from "../workspace";
 import { appendActivity } from "../activity";
 import { publish, subscribe } from "../sse";
@@ -246,6 +248,63 @@ workspacesRouter.get("/:id/events", async (c) => {
       "X-Accel-Buffering": "no",
       "X-Workspace-Id": id,
     },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/workspaces/:id/activity — parsed JSONL activity log for debugging
+// ---------------------------------------------------------------------------
+workspacesRouter.get("/:id/activity", async (c) => {
+  const id = c.req.param("id");
+  if (!isValidWorkspaceId(id)) {
+    return c.json({ ok: false, error: "Invalid workspace id." }, 400);
+  }
+  const workspace = await getWorkspace(id);
+  if (!workspace) {
+    return c.json({ ok: false, error: "Unknown workspace." }, 404);
+  }
+
+  let activityDir: string;
+  try {
+    activityDir = resolveWithinWorkspace(id, "activity");
+  } catch {
+    return c.json({ ok: true, events: [] });
+  }
+
+  let files: string[];
+  try {
+    files = (await readdir(activityDir))
+      .filter((f) => f.endsWith(".jsonl"))
+      .sort();
+  } catch {
+    return c.json({ ok: true, events: [] });
+  }
+
+  const events: unknown[] = [];
+  for (const f of files) {
+    const fp = path.join(activityDir, f);
+    let raw: string;
+    try {
+      raw = await readFile(fp, "utf-8");
+    } catch {
+      continue;
+    }
+    for (const line of raw.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        events.push(JSON.parse(trimmed));
+      } catch {
+        events.push({ type: "unparseable", raw: trimmed });
+      }
+    }
+  }
+
+  return c.json({
+    ok: true,
+    workspaceId: id,
+    originalName: workspace.originalName,
+    events,
   });
 });
 

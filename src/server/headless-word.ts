@@ -149,6 +149,55 @@ async function runHeadlessWordJson<T>(
   }
 }
 
+/** Dumps the session's current document text/structure as JSON. */
+export async function getDocumentText(sessionId: SessionId): Promise<unknown> {
+  return runHeadlessWordJson<unknown>(["get-document-text", sessionId]);
+}
+
+/**
+ * Writes the LibreOffice user profile (first / last name) so tracked changes
+ * made by the agent are attributed to a proper name instead of "Unknown
+ * Author". The setting is daemon-wide, so we only need one successful call
+ * per daemon lifetime.
+ */
+export async function setLibreOfficeAuthor(
+  sessionId: SessionId,
+  firstName: string,
+  lastName: string,
+): Promise<void> {
+  // Escape quotes in the Python string literals.
+  const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const code = `
+from com.sun.star.beans import PropertyValue
+cfg = smgr.createInstanceWithContext(
+    "com.sun.star.configuration.ConfigurationProvider", ctx
+)
+arg = PropertyValue()
+arg.Name = "nodepath"
+arg.Value = "/org.openoffice.UserProfile/Data"
+writer = cfg.createInstanceWithArgumentsAndContext(
+    "com.sun.star.configuration.ConfigurationUpdateAccess",
+    (arg,), ctx
+)
+writer.setPropertyValue("givenname", "${esc(firstName)}")
+writer.setPropertyValue("sn", "${esc(lastName)}")
+writer.commitChanges()
+result = {"author_set": "${esc(firstName)} ${esc(lastName)}"}
+`;
+  await runHeadlessWordJson<unknown>([
+    "execute",
+    sessionId,
+    "--code",
+    code,
+  ]);
+}
+
+export async function getDocumentStructure(
+  sessionId: SessionId,
+): Promise<unknown> {
+  return runHeadlessWordJson<unknown>(["get-document-structure", sessionId]);
+}
+
 /** Opens a DOCX file with headless-word; returns a session id. */
 export async function openSession(docxPath: string): Promise<SessionId> {
   const payload = await runHeadlessWordJson<{ session_id: string }>([
@@ -164,10 +213,54 @@ export async function openSession(docxPath: string): Promise<SessionId> {
 }
 
 /**
- * Saves the session's document state to a temporary file then reads back the
- * bytes. The headless-word `save` command writes the DOCX to disk; its JSON
- * reply contains the path. We round-trip through disk so we always hand
- * callers fully-normalized DOCX bytes.
+ * Ensures the headless-word daemon is running. Idempotent — cheap to call on
+ * every workspace hit. `status` exits 0 when the daemon is up.
+ */
+export async function ensureDaemonRunning(): Promise<void> {
+  await resolveHeadlessWord();
+  const status = await runProcess(
+    headlessWordBinary!,
+    ["status"],
+    { timeoutMs: 10_000 },
+  );
+  if (status.code === 0) return;
+  // `status` exits non-zero when the daemon isn't up. Start it.
+  await runHeadlessWord(["start"], { timeoutMs: 60_000 });
+}
+
+/**
+ * Returns the active session ids keyed by headless-word id.
+ */
+export async function listSessions(): Promise<Record<string, { path?: string }>> {
+  try {
+    return await runHeadlessWordJson<Record<string, { path?: string }>>([
+      "list",
+    ]);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Saves the session's document in-place to its original path. headless-word's
+ * `save <session>` writes the DOCX back to whatever path the session was
+ * opened from. This is what we want for checkpoints — the session stays valid
+ * and `working.docx` gets the latest bytes.
+ *
+ * Note: do NOT pass `--path` here. Per `headless-word save --help`, `--path`
+ * is a "save-as" operation that re-associates the session with the new path.
+ * After a save-as the original session becomes invalid (`SwXTextDocument not
+ * valid`) and subsequent `get-document-text` / further edits on that session
+ * fail. We learned this the hard way.
+ */
+export async function saveSessionInPlace(sessionId: SessionId): Promise<void> {
+  await runHeadlessWordJson<{ saved: string }>(["save", sessionId]);
+}
+
+/**
+ * Legacy "save to an out-of-band path and read the bytes back" helper. Kept
+ * for any caller that truly needs normalized bytes without affecting the
+ * session's on-disk source. Prefer `saveSessionInPlace` for checkpoints.
  */
 export async function saveDocument(sessionId: SessionId): Promise<Buffer> {
   const outPath = path.join(

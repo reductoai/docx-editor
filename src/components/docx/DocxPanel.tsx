@@ -277,9 +277,12 @@ export default function DocxPanel({
             documentBuffer={buffer}
             mode="suggesting"
             author="You"
-            showRuler
-            showOutline
             showToolbar
+            showRuler={false}
+            showOutline={false}
+            showOutlineButton={false}
+            showZoomControl={false}
+            showPrintButton={false}
             documentName={documentName}
             documentNameEditable={false}
             onChange={onEditorChange}

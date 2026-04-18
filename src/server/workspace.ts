@@ -1,6 +1,15 @@
 import { chmod, copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  closeSession,
+  ensureDaemonRunning,
+  getDocumentStructure,
+  getDocumentText,
+  listSessions,
+  openSession,
+  setLibreOfficeAuthor,
+} from "./headless-word";
 
 export const WORKSPACES_ROOT = path.join(process.cwd(), "workspaces");
 
@@ -115,7 +124,7 @@ export async function getWorkspace(id: string): Promise<Workspace | null> {
     createdAt: new Date().toISOString(),
     originalName: "document.docx",
   };
-  return {
+  const workspace: Workspace = {
     id,
     dir,
     originalPath: path.join(dir, "original.docx"),
@@ -123,6 +132,15 @@ export async function getWorkspace(id: string): Promise<Workspace | null> {
     createdAt: metadata.createdAt,
     originalName: metadata.originalName,
   };
+  // Self-heal: if the shim is out of date or any seeded file is missing,
+  // rewrite them so the agent isn't fighting stale scaffolding.
+  await ensureSeedFreshness(workspace).catch((err) => {
+    console.warn(
+      `[workspace] ensureSeedFreshness failed for ${id}:`,
+      (err as Error).message,
+    );
+  });
+  return workspace;
 }
 
 export async function createWorkspace(opts: {
@@ -280,9 +298,13 @@ function buildDocxToolScript(workspace: Workspace, helperPythonPath: string): st
     `export PI_DOCX_WORKSPACE_DIR=${JSON.stringify(workspace.dir)}`,
     `export PI_DOCX_WORKING_DOCX_PATH=${JSON.stringify(workspace.workingPath)}`,
     `export PI_DOCX_SESSION_STATE_PATH=${JSON.stringify(sessionStatePath)}`,
+    `export PI_DOCX_SESSION_ID=${JSON.stringify(workspace.id)}`,
     'export HEADLESS_WORD_IDLE_TIMEOUT=${HEADLESS_WORD_IDLE_TIMEOUT:-14400}',
     'export PATH="$HOME/.local/bin:$PATH"',
-    `python3 ${JSON.stringify(helperPythonPath)} --workspace . "$@"`,
+    // workspace_tool.py has no `--workspace` flag — the workspace dir is
+    // picked up from PI_DOCX_WORKSPACE_DIR. Passing `.` as a positional
+    // confused argparse and broke every docx-tool invocation.
+    `python3 ${JSON.stringify(helperPythonPath)} "$@"`,
     "",
   ].join("\n");
 }
@@ -297,7 +319,37 @@ export async function seedWorkspace(ws: Workspace): Promise<void> {
   const readmePath = path.join(ws.dir, "README_AGENT.md");
   const skillPath = path.join(ws.dir, "HEADLESS_WORD_SKILL.md");
   const notesPath = path.join(ws.dir, "agent_notes.md");
+  const manifestPath = path.join(ws.dir, "workspace_manifest.json");
+  const sessionStatePath = path.join(ws.dir, "headless_word_session.json");
+  const docTextPath = path.join(ws.dir, "document_text.current.json");
+  const docStructPath = path.join(ws.dir, "document_structure.current.json");
 
+  // The system prompt tells the agent to read these before editing. The docx
+  // text / structure snapshots are populated by headless-word via
+  // `./docx-tool refresh` when the agent runs — seed empty placeholders so
+  // the first `read` doesn't ENOENT.
+  const manifest = {
+    workspaceId: ws.id,
+    createdAt: ws.createdAt,
+    originalName: ws.originalName,
+    sessionId: ws.id,
+    paths: {
+      workingDocx: "working.docx",
+      originalDocx: "original.docx",
+      documentText: "document_text.current.json",
+      documentStructure: "document_structure.current.json",
+    },
+  };
+
+  const emptyTextSnapshot = {
+    stale: true,
+    note: "Run ./docx-tool refresh to populate this file from the current working.docx.",
+  };
+
+  // Don't preseed the session file with a placeholder id — the real
+  // headless-word session id is written by `ensureHeadlessSession` on the
+  // first getWorkspace() hit. A placeholder would be treated as "already
+  // valid" by checkpoint.ts and skip the real open.
   await Promise.all([
     writeFile(helperScriptPath, buildDocxToolScript(ws, helperPythonPath), {
       mode: 0o755,
@@ -305,9 +357,187 @@ export async function seedWorkspace(ws: Workspace): Promise<void> {
     writeFile(readmePath, README_AGENT),
     writeFile(skillPath, HEADLESS_WORD_SKILL),
     writeFile(notesPath, AGENT_NOTES_TEMPLATE),
+    writeFile(manifestPath, JSON.stringify(manifest, null, 2)),
+    writeFile(docTextPath, JSON.stringify(emptyTextSnapshot, null, 2)),
+    writeFile(docStructPath, JSON.stringify(emptyTextSnapshot, null, 2)),
   ]);
   await chmod(helperScriptPath, 0o755).catch(() => undefined);
 }
 
+/**
+ * Re-seeds the workspace scaffolding (shim + docs + snapshots) if any of the
+ * required files are missing or the shim is out of date. Safe to call on
+ * every `getWorkspace` hit — writes only what's needed.
+ */
+export async function ensureSeedFreshness(ws: Workspace): Promise<void> {
+  const shimPath = path.join(ws.dir, "docx-tool");
+  const expectedShim = buildDocxToolScript(
+    ws,
+    path.join(process.cwd(), "workspace_tool.py"),
+  );
+  let reseed = false;
+  try {
+    const existing = await readFile(shimPath, "utf-8");
+    if (existing !== expectedShim) reseed = true;
+  } catch {
+    reseed = true;
+  }
+  if (!reseed) {
+    // Also check the other required files. If any are missing, reseed.
+    const required = [
+      "README_AGENT.md",
+      "HEADLESS_WORD_SKILL.md",
+      "agent_notes.md",
+      "workspace_manifest.json",
+      "headless_word_session.json",
+      "document_text.current.json",
+      "document_structure.current.json",
+    ];
+    for (const f of required) {
+      try {
+        await stat(path.join(ws.dir, f));
+      } catch {
+        reseed = true;
+        break;
+      }
+    }
+  }
+  if (reseed) {
+    await seedWorkspace(ws);
+  }
+  // Ensure headless-word has a live session open on this workspace so
+  // docx-tool helpers (text / structure / replace / etc.) resolve a real
+  // session id from headless_word_session.json.
+  await ensureHeadlessSession(ws).catch((err) => {
+    console.warn(
+      `[workspace] ensureHeadlessSession failed for ${ws.id}:`,
+      (err as Error).message,
+    );
+  });
+}
+
+/**
+ * Ensures `headless-word` is running and has a session open on this
+ * workspace's working.docx. Writes the real session id into
+ * `headless_word_session.json` so `workspace_tool.py` picks it up.
+ */
+async function ensureHeadlessSession(ws: Workspace): Promise<void> {
+  await ensureDaemonRunning();
+
+  const sessionFile = path.join(ws.dir, "headless_word_session.json");
+  let storedId: string | null = null;
+  try {
+    const raw = await readFile(sessionFile, "utf-8");
+    const parsed = JSON.parse(raw) as { session_id?: unknown };
+    if (typeof parsed.session_id === "string" && parsed.session_id.trim()) {
+      storedId = parsed.session_id.trim();
+    }
+  } catch {
+    storedId = null;
+  }
+
+  // A stored id is only valid if headless-word still tracks it AND it points
+  // at this workspace's working.docx. Workspace-id-shaped ids (e.g. the
+  // placeholder we previously wrote) will never match a real session.
+  const sessions = await listSessions();
+  const match =
+    storedId && sessions[storedId]?.path === ws.workingPath ? storedId : null;
+
+  // Close any leaked sessions pointing at this working.docx so we don't
+  // accumulate ghosts across hot-reloads or crashed previous runs.
+  const leaked = Object.entries(sessions)
+    .filter(([id, meta]) => id !== match && meta?.path === ws.workingPath)
+    .map(([id]) => id);
+  for (const id of leaked) {
+    await closeSession(id).catch(() => undefined);
+  }
+
+  if (match) {
+    await ensureAgentAuthorConfigured(match);
+    return;
+  }
+
+  const freshId = await openSession(ws.workingPath);
+  await writeFile(
+    sessionFile,
+    JSON.stringify({ session_id: freshId }, null, 2),
+  );
+  await ensureAgentAuthorConfigured(freshId);
+}
+
+// LibreOffice's UserProfile is process-wide — once we've set it on the
+// running daemon, every tracked-change insertion picks up the name. Retry
+// each server boot in case the daemon was restarted under us.
+let agentAuthorConfigured = false;
+
+async function ensureAgentAuthorConfigured(sessionId: string): Promise<void> {
+  if (agentAuthorConfigured) return;
+  try {
+    await setLibreOfficeAuthor(sessionId, "Reducto", "Agent");
+    agentAuthorConfigured = true;
+  } catch (err) {
+    console.warn(
+      "[workspace] failed to set LibreOffice user profile:",
+      (err as Error).message,
+    );
+  }
+}
+
 // Re-export copyFile for callers that want to snapshot the working doc.
 export { copyFile };
+
+/**
+ * Snapshot files that should be re-generated from the live headless-word
+ * session on every read, so the agent never sees `{stale: true}` placeholders.
+ */
+export const AUTO_REFRESH_SNAPSHOT_FILES = new Set([
+  "document_text.current.json",
+  "document_structure.current.json",
+]);
+
+/**
+ * Re-generates `document_text.current.json` and `document_structure.current.json`
+ * from the current headless-word session state. Called just-in-time by the
+ * `read` tool when the agent asks for one of those files, so reads are always
+ * fresh without the agent having to run `./docx-tool refresh` first.
+ *
+ * Safe to call concurrently for the same workspace: concurrent refreshes just
+ * write the same bytes. If the session can't be resolved we leave the file as
+ * is (previous snapshot or seeded placeholder) rather than failing the read.
+ */
+export async function refreshDocumentSnapshots(
+  ws: Workspace,
+): Promise<void> {
+  const sessionFile = path.join(ws.dir, "headless_word_session.json");
+  let sessionId: string | null = null;
+  try {
+    const raw = await readFile(sessionFile, "utf-8");
+    const parsed = JSON.parse(raw) as { session_id?: unknown };
+    if (typeof parsed.session_id === "string" && parsed.session_id.trim()) {
+      const id = parsed.session_id.trim();
+      // Reject stale placeholders (we used to write the workspace id here).
+      if (id !== ws.id) sessionId = id;
+    }
+  } catch {
+    sessionId = null;
+  }
+  if (!sessionId) return;
+
+  const sessions = await listSessions();
+  if (!sessions[sessionId]) return;
+
+  const [textPayload, structurePayload] = await Promise.all([
+    getDocumentText(sessionId),
+    getDocumentStructure(sessionId),
+  ]);
+  await Promise.all([
+    writeFile(
+      path.join(ws.dir, "document_text.current.json"),
+      JSON.stringify(textPayload, null, 2),
+    ),
+    writeFile(
+      path.join(ws.dir, "document_structure.current.json"),
+      JSON.stringify(structurePayload, null, 2),
+    ),
+  ]);
+}

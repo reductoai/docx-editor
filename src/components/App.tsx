@@ -8,9 +8,6 @@ export default function App() {
   // Lifted so DocxPanel can pause PUTs while an agent turn is in flight.
   // ChatPanel drives this via its `useAgent` hook.
   const [isAgentTurn, setIsAgentTurn] = useState(false);
-  // Timestamp of the most recent checkpoint applied to the editor. Fed by
-  // DocxPanel and displayed in ChatPanel's metrics footer.
-  const [lastCheckpointAt, setLastCheckpointAt] = useState<number | null>(null);
 
   return (
     <div className="app-shell">
@@ -21,7 +18,6 @@ export default function App() {
           documentName={documentName}
           onDocumentNameChange={setDocumentName}
           isAgentTurn={isAgentTurn}
-          onCheckpointApplied={() => setLastCheckpointAt(Date.now())}
         />
       </div>
       <div className="app-shell__chat">
@@ -29,7 +25,6 @@ export default function App() {
           workspaceId={workspaceId}
           documentName={documentName}
           onStreamingChange={setIsAgentTurn}
-          lastCheckpointAt={lastCheckpointAt}
         />
       </div>
     </div>

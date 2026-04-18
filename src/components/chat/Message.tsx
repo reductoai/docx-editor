@@ -8,14 +8,23 @@ import type { ChatMessage } from "../../lib/chat-types";
 interface Props {
   message: ChatMessage;
   density: "compact" | "detailed";
+  /** When false, hides the avatar + author name so consecutive messages from
+   *  the same role visually collapse into a single turn. */
+  showHeader?: boolean;
 }
 
-export default function Message({ message, density }: Props) {
+export default function Message({ message, density, showHeader = true }: Props) {
   const isUser = message.role === "user";
   return (
-    <div className={cn("msg", isUser ? "user" : "agent")}>
-      <div className="msg-avatar">
-        {isUser ? (
+    <div
+      className={cn(
+        "msg",
+        isUser ? "user" : "agent",
+        !showHeader && "msg--continuation",
+      )}
+    >
+      <div className="msg-avatar" aria-hidden={!showHeader}>
+        {showHeader && (isUser ? (
           "A"
         ) : (
           <svg
@@ -31,10 +40,12 @@ export default function Message({ message, density }: Props) {
           >
             <path d="M12 3l1.88 5.64L20 11l-6.12 2.36L12 19l-1.88-5.64L4 11l6.12-2.36z" />
           </svg>
-        )}
+        ))}
       </div>
       <div className="msg-body">
-        <div className="msg-author">{isUser ? "You" : "Reducto"}</div>
+        {showHeader && (
+          <div className="msg-author">{isUser ? "You" : "Reducto"}</div>
+        )}
         {message.blocks.map((block) => {
           if (block.type === "text") {
             return <TextBlock key={block.id} text={block.text} streaming={block.streaming} />;
