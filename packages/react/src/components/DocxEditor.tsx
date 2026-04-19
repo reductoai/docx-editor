@@ -293,6 +293,8 @@ export interface DocxEditorProps {
   showOutlineButton?: boolean;
   /** Whether to show print button in toolbar (default: true) */
   showPrintButton?: boolean;
+  /** Whether comments are enabled (default: true). When false, hides all comment UI including the toolbar button, floating add-comment button, margin markers, and context menu action. */
+  commentsEnabled?: boolean;
   /** Print options for print preview */
   printOptions?: PrintOptions;
   /** Callback when print is triggered */
@@ -829,6 +831,7 @@ export const DocxEditor = forwardRef<DocxEditorRef, DocxEditorProps>(function Do
     showOutline: showOutlineProp = false,
     showOutlineButton = true,
     showPrintButton = true,
+    commentsEnabled = true,
     printOptions: _printOptions,
     onPrint,
     onCopy: _onCopy,
@@ -1078,7 +1081,7 @@ export const DocxEditor = forwardRef<DocxEditorRef, DocxEditorProps>(function Do
     const bodyComments = doc.package?.document?.comments;
     if (bodyComments && bodyComments.length > 0) {
       setComments(bodyComments);
-      setShowCommentsSidebar(true);
+      if (commentsEnabled) setShowCommentsSidebar(true);
       commentsLoadedRef.current = true;
       // Ensure nextCommentId is above all loaded comment IDs AND tracked change
       // revisionIds to avoid collisions (they share the same ID space in OOXML)
@@ -1400,7 +1403,7 @@ export const DocxEditor = forwardRef<DocxEditorRef, DocxEditorProps>(function Do
   const recomputeFloatingCommentBtn = useCallback(() => {
     const view = pagedEditorRef.current?.getView();
     if (!view) return;
-    if (isAddingCommentRef.current || readOnlyForFloatingBtnRef.current) {
+    if (isAddingCommentRef.current || readOnlyForFloatingBtnRef.current || !commentsEnabled) {
       setFloatingCommentBtn(null);
       return;
     }
@@ -2678,7 +2681,7 @@ export const DocxEditor = forwardRef<DocxEditorRef, DocxEditorProps>(function Do
         dividerAfter: !contextMenu.hasSelection && !contextMenu.cursorInTable,
       },
     ];
-    if (contextMenu.hasSelection) {
+    if (contextMenu.hasSelection && commentsEnabled) {
       items.push({
         action: 'addComment',
         label: 'Comment',
@@ -3798,20 +3801,21 @@ body { background: white; }
   const toolbarChildren = (
     <>
       <ToolbarSeparator />
-      <ToolbarButton
-        onClick={() => {
-          // Also reset expansion so reshowing the sidebar lands on the default
-          // collapsed state — resolved threads stay as checkmarks, not opened.
-          setShowCommentsSidebar((v) => !v);
-          setExpandedSidebarItem(null);
-        }}
-        active={showCommentsSidebar}
-        title="Toggle comments sidebar"
-        ariaLabel="Toggle comments sidebar"
-      >
-        <MaterialSymbol name="comment" size={20} />
-      </ToolbarButton>
-      {/* Resolved comments use margin markers instead of toolbar toggle */}
+      {commentsEnabled && (
+        <ToolbarButton
+          onClick={() => {
+            // Also reset expansion so reshowing the sidebar lands on the default
+            // collapsed state — resolved threads stay as checkmarks, not opened.
+            setShowCommentsSidebar((v) => !v);
+            setExpandedSidebarItem(null);
+          }}
+          active={showCommentsSidebar}
+          title="Toggle comments sidebar"
+          ariaLabel="Toggle comments sidebar"
+        >
+          <MaterialSymbol name="comment" size={20} />
+        </ToolbarButton>
+      )}
       <ToolbarSeparator />
       <EditingModeDropdown
         mode={editingMode}
@@ -4046,7 +4050,11 @@ body { background: white; }
                             ];
                             let cursorSidebarItem: string | null = null;
                             for (const mark of marks) {
-                              if (mark.type.name === 'comment' && mark.attrs.commentId != null) {
+                              if (
+                                commentsEnabled &&
+                                mark.type.name === 'comment' &&
+                                mark.attrs.commentId != null
+                              ) {
                                 // Skip resolved comments — they stay collapsed as a checkmark
                                 // marker unless the user explicitly clicks it. Otherwise the
                                 // sidebar fills up with old threads every time the cursor
@@ -4119,85 +4127,92 @@ body { background: white; }
                                 activeItemId={expandedSidebarItem}
                               />
                             )}
-                            <CommentMarginMarkers
-                              comments={comments}
-                              anchorPositions={anchorPositions}
-                              zoom={state.zoom}
-                              pageWidth={(() => {
-                                const sp = history.state?.package?.document?.finalSectionProperties;
-                                return sp?.pageWidth ? Math.round(sp.pageWidth / 15) : 816;
-                              })()}
-                              sidebarOpen={sidebarOpen}
-                              resolvedCommentIds={resolvedCommentIds}
-                              onMarkerClick={() => {
-                                setShowCommentsSidebar(true);
-                              }}
-                            />
+                            {commentsEnabled && (
+                              <CommentMarginMarkers
+                                comments={comments}
+                                anchorPositions={anchorPositions}
+                                zoom={state.zoom}
+                                pageWidth={(() => {
+                                  const sp =
+                                    history.state?.package?.document?.finalSectionProperties;
+                                  return sp?.pageWidth ? Math.round(sp.pageWidth / 15) : 816;
+                                })()}
+                                sidebarOpen={sidebarOpen}
+                                resolvedCommentIds={resolvedCommentIds}
+                                onMarkerClick={() => {
+                                  setShowCommentsSidebar(true);
+                                }}
+                              />
+                            )}
                           </>
                         }
                       />
 
                       {/* Floating "add comment" button — appears on right edge of page at selection */}
-                      {floatingCommentBtn != null && !isAddingComment && !readOnly && (
-                        <Tooltip content="Add comment" side="bottom" delayMs={300}>
-                          <button
-                            type="button"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              const view = pagedEditorRef.current?.getView();
-                              if (view) {
-                                const { from, to } = view.state.selection;
-                                if (from !== to) {
-                                  setCommentSelectionRange({ from, to });
-                                  const pendingMark = view.state.schema.marks.comment.create({
-                                    commentId: PENDING_COMMENT_ID,
-                                  });
-                                  const tr = view.state.tr.addMark(from, to, pendingMark);
-                                  tr.setSelection(TextSelection.create(tr.doc, to));
-                                  view.dispatch(tr);
+                      {commentsEnabled &&
+                        floatingCommentBtn != null &&
+                        !isAddingComment &&
+                        !readOnly && (
+                          <Tooltip content="Add comment" side="bottom" delayMs={300}>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const view = pagedEditorRef.current?.getView();
+                                if (view) {
+                                  const { from, to } = view.state.selection;
+                                  if (from !== to) {
+                                    setCommentSelectionRange({ from, to });
+                                    const pendingMark = view.state.schema.marks.comment.create({
+                                      commentId: PENDING_COMMENT_ID,
+                                    });
+                                    const tr = view.state.tr.addMark(from, to, pendingMark);
+                                    tr.setSelection(TextSelection.create(tr.doc, to));
+                                    view.dispatch(tr);
+                                  }
                                 }
-                              }
-                              setAddCommentYPosition(floatingCommentBtn.top);
-                              setShowCommentsSidebar(true);
-                              setIsAddingComment(true);
-                              setFloatingCommentBtn(null);
-                            }}
-                            style={{
-                              position: 'absolute',
-                              top: floatingCommentBtn.top,
-                              left: floatingCommentBtn.left,
-                              transform: 'translate(-50%, -50%)',
-                              zIndex: 50,
-                              width: 28,
-                              height: 28,
-                              borderRadius: 6,
-                              border: '1px solid rgba(26, 115, 232, 0.3)',
-                              backgroundColor: '#fff',
-                              color: '#1a73e8',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              boxShadow: '0 1px 3px rgba(60,64,67,0.2)',
-                              transition: 'background-color 0.15s ease, box-shadow 0.15s ease',
-                            }}
-                            onMouseOver={(e) => {
-                              (e.currentTarget as HTMLButtonElement).style.backgroundColor =
-                                'rgba(26, 115, 232, 0.08)';
-                              (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                                '0 1px 4px rgba(26, 115, 232, 0.3)';
-                            }}
-                            onMouseOut={(e) => {
-                              (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#fff';
-                              (e.currentTarget as HTMLButtonElement).style.boxShadow =
-                                '0 1px 3px rgba(60,64,67,0.2)';
-                            }}
-                          >
-                            <MaterialSymbol name="add_comment" size={16} />
-                          </button>
-                        </Tooltip>
-                      )}
+                                setAddCommentYPosition(floatingCommentBtn.top);
+                                setShowCommentsSidebar(true);
+                                setIsAddingComment(true);
+                                setFloatingCommentBtn(null);
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: floatingCommentBtn.top,
+                                left: floatingCommentBtn.left,
+                                transform: 'translate(-50%, -50%)',
+                                zIndex: 50,
+                                width: 28,
+                                height: 28,
+                                borderRadius: 6,
+                                border: '1px solid rgba(26, 115, 232, 0.3)',
+                                backgroundColor: '#fff',
+                                color: '#1a73e8',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                boxShadow: '0 1px 3px rgba(60,64,67,0.2)',
+                                transition: 'background-color 0.15s ease, box-shadow 0.15s ease',
+                              }}
+                              onMouseOver={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.backgroundColor =
+                                  'rgba(26, 115, 232, 0.08)';
+                                (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                                  '0 1px 4px rgba(26, 115, 232, 0.3)';
+                              }}
+                              onMouseOut={(e) => {
+                                (e.currentTarget as HTMLButtonElement).style.backgroundColor =
+                                  '#fff';
+                                (e.currentTarget as HTMLButtonElement).style.boxShadow =
+                                  '0 1px 3px rgba(60,64,67,0.2)';
+                              }}
+                            >
+                              <MaterialSymbol name="add_comment" size={16} />
+                            </button>
+                          </Tooltip>
+                        )}
 
                       {/* Inline Header/Footer Editor — positioned over the target area */}
                       {hfEditPosition &&
