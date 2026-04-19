@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   createWorkspace,
@@ -373,6 +373,74 @@ result = {"action": "${action}"}
   scheduleCheckpoint(id, `user:${action}`);
   return c.json({ ok: true });
 }
+
+// ---------------------------------------------------------------------------
+// POST /api/workspaces/:id/attachments — upload a file into the workspace
+// ---------------------------------------------------------------------------
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+workspacesRouter.post("/:id/attachments", async (c) => {
+  const id = c.req.param("id");
+  if (!isValidWorkspaceId(id)) {
+    return c.json({ ok: false, error: "Invalid workspace id." }, 400);
+  }
+  const workspace = await getWorkspace(id);
+  if (!workspace) {
+    return c.json({ ok: false, error: "Unknown workspace." }, 404);
+  }
+
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch (err) {
+    return c.json(
+      { ok: false, error: `Invalid multipart form: ${err instanceof Error ? err.message : String(err)}` },
+      400,
+    );
+  }
+  const file = form.get("file");
+  if (!(file instanceof File)) {
+    return c.json({ ok: false, error: "Missing `file` field." }, 400);
+  }
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    return c.json({ ok: false, error: "File too large (10 MB max)." }, 413);
+  }
+
+  const originalName = typeof file.name === "string" && file.name.length > 0
+    ? file.name
+    : "attachment";
+
+  const safeName = originalName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const attachDir = path.join(workspace.dir, "attachments");
+  await mkdir(attachDir, { recursive: true });
+
+  let destName = safeName;
+  const ext = path.extname(safeName);
+  const base = path.basename(safeName, ext);
+  let counter = 1;
+  try {
+    while (true) {
+      const destPath = path.join(attachDir, destName);
+      await readFile(destPath);
+      destName = `${base}_${counter}${ext}`;
+      counter++;
+    }
+  } catch {
+    // File doesn't exist — good, we can use this name.
+  }
+
+  const bytes = Buffer.from(await file.arrayBuffer());
+  const destPath = path.join(attachDir, destName);
+  await writeFile(destPath, bytes);
+
+  const relativePath = `attachments/${destName}`;
+
+  return c.json({
+    ok: true,
+    name: originalName,
+    path: relativePath,
+  });
+});
 
 // ---------------------------------------------------------------------------
 // DELETE /api/workspaces/:id — stub

@@ -1,4 +1,5 @@
 import { cn } from "../ui/cn";
+import Icon from "../icons/Icon";
 import ActionResultPill from "./ActionResultPill";
 import TextBlock from "./TextBlock";
 import ThinkingIndicator from "./ThinkingIndicator";
@@ -77,6 +78,14 @@ export default function Message({ message, density, showHeader = true }: Props) 
                 to={block.to}
                 section={block.section}
               />
+            );
+          }
+          if (block.type === "attachment") {
+            return (
+              <span key={block.id} className="msg-attachment-chip">
+                <Icon name="paperclip" size={12} />
+                {block.name}
+              </span>
             );
           }
           if (block.type === "thinking") {

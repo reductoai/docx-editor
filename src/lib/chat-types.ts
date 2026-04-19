@@ -45,12 +45,19 @@ export interface ActionBlock {
   section?: string;
 }
 
+export interface AttachmentBlock {
+  id: string;
+  type: "attachment";
+  name: string;
+  path: string;
+}
+
 export interface ThinkingBlock {
   id: string;
   type: "thinking";
 }
 
-export type DisplayBlock = TextBlock | ToolBlock | ActionBlock | ThinkingBlock;
+export type DisplayBlock = TextBlock | ToolBlock | ActionBlock | AttachmentBlock | ThinkingBlock;
 
 export interface ChatMessage {
   id: string;

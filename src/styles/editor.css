@@ -181,6 +181,18 @@
   color: var(--fg-secondary);
   font-family: var(--font-sans);
 }
+.msg-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--surface-hover);
+  font-size: 12px;
+  color: var(--fg-secondary);
+  font-family: var(--font-sans);
+  margin-top: 4px;
+}
 .msg-text {
   font-size: 13px;
   line-height: 1.55;
@@ -222,6 +234,7 @@
   font-family: var(--font-sans);
   align-self: flex-start;
   max-width: 100%;
+  overflow: hidden;
 }
 .tool-pill .tp-icon {
   width: 13px;
@@ -321,6 +334,7 @@
 .tool-pill--clickable .tool-pill__toggle {
   padding: 3px 9px 3px 7px;
   border-radius: 999px;
+  min-width: 0;
 }
 .tool-pill--clickable:hover:not(.tool-pill--expanded) {
   background: var(--surface-hover);
@@ -339,6 +353,7 @@
 .tp-chevron {
   margin-left: auto;
   display: inline-flex;
+  flex-shrink: 0;
   color: var(--fg-secondary);
   transition: transform 120ms ease;
 }
@@ -499,7 +514,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 8px 0;
+  padding: 2px 0;
 }
 .thinking .dot {
   width: 5px;
@@ -587,6 +602,47 @@
 }
 .composer-input:disabled {
   cursor: not-allowed;
+}
+.composer-file-input {
+  display: none;
+}
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.composer-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 5px;
+  border-radius: 5px;
+  background: var(--surface-hover);
+  font-size: 11px;
+  color: var(--fg-secondary);
+  line-height: 1.4;
+}
+.composer-attachment-chip__name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-attachment-chip__remove {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  padding: 0;
+  border-radius: 3px;
+}
+.composer-attachment-chip__remove:hover {
+  background: var(--grey-300);
+  color: var(--fg-primary);
 }
 .composer-row {
   display: flex;

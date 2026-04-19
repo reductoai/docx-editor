@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatToolExecutionLabel } from "../agent/labels";
 import type {
+  AttachmentBlock,
   ChatMessage,
   DisplayBlock,
   TextBlock,
@@ -36,10 +37,18 @@ type AssistantSubEvent =
       contentIndex: number;
     };
 
+export interface SendAttachment {
+  name: string;
+  path: string;
+}
+
 export interface SendMessageOptions {
   /** Anthropic model id (e.g. `claude-sonnet-4-5`). Server falls back to its
    *  own default if omitted or invalid. */
   model?: string;
+  attachments?: SendAttachment[];
+  /** Text shown in the chat UI. Defaults to the full text if omitted. */
+  displayText?: string;
 }
 
 export interface AgentChatState {
@@ -75,21 +84,33 @@ function uid(prefix: string) {
 
 // --- Reducer-style helpers (pure so they remain easy to reason about) -------
 
-function appendUserMessage(messages: ChatMessage[], text: string): ChatMessage[] {
+function appendUserMessage(
+  messages: ChatMessage[],
+  text: string,
+  attachments?: SendAttachment[],
+): ChatMessage[] {
+  const blocks: DisplayBlock[] = [];
+  if (text) {
+    blocks.push({
+      id: uid("text"),
+      type: "text",
+      text,
+      streaming: false,
+    } satisfies TextBlock);
+  }
+  if (attachments?.length) {
+    for (const att of attachments) {
+      blocks.push({
+        id: uid("att"),
+        type: "attachment",
+        name: att.name,
+        path: att.path,
+      } satisfies AttachmentBlock);
+    }
+  }
   return [
     ...messages,
-    {
-      id: uid("user"),
-      role: "user",
-      blocks: [
-        {
-          id: uid("text"),
-          type: "text",
-          text,
-          streaming: false,
-        },
-      ],
-    },
+    { id: uid("user"), role: "user", blocks },
   ];
 }
 
@@ -256,7 +277,8 @@ export function useAgent(workspaceId: string | null): AgentChatState {
       if (!trimmed || !workspaceId) return;
       if (inFlightRef.current) return; // ignore while a turn is running
 
-      setMessages((prev) => appendUserMessage(prev, trimmed));
+      const shown = options?.displayText ?? trimmed;
+      setMessages((prev) => appendUserMessage(prev, shown, options?.attachments));
       setErrorMessage(null);
 
       const controller = new AbortController();

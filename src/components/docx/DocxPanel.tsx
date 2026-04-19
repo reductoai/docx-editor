@@ -50,6 +50,10 @@ export default function DocxPanel({
   // Whether the loaded document contains tracked changes (insertion/deletion marks).
   const [hasTrackedChanges, setHasTrackedChanges] = useState(false);
 
+  // Whether an accept/reject-all operation is in flight — stays true until
+  // the resulting checkpoint is applied so the buttons don't flash.
+  const [resolving, setResolving] = useState(false);
+
   const checkTrackedChanges = useCallback(() => {
     const editorRef = libraryRef.current?.getEditorRef?.();
     if (!editorRef) {
@@ -109,6 +113,31 @@ export default function DocxPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleResolveChanges = useCallback(
+    async (action: "accept" | "reject") => {
+      if (resolving) return;
+      setResolving(true);
+      try {
+        const res = await fetch(
+          `/api/workspaces/${workspaceId}/${action}-changes`,
+          { method: "POST" },
+        );
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          console.warn(
+            `[DocxPanel] ${action}-changes failed:`,
+            body?.error ?? res.status,
+          );
+          setResolving(false);
+        }
+      } catch (err) {
+        console.warn(`[DocxPanel] ${action}-changes request failed:`, err);
+        setResolving(false);
+      }
+    },
+    [workspaceId, resolving],
+  );
+
   const { onChange: onSyncChange, toast } = useDocxSync({
     workspaceId,
     editorRef: apiRef,
@@ -166,6 +195,7 @@ export default function DocxPanel({
           await libraryRef.current?.loadDocumentBuffer(buf);
           lastAppliedSeqRef.current = seq;
           checkTrackedChanges();
+          setResolving(false);
           onCheckpointApplied?.();
           showAgentToast(
             sourceTool
@@ -265,8 +295,8 @@ export default function DocxPanel({
               if (file) void handleFile(file);
             }}
           >
-            <h2>Open a DOCX</h2>
-            <p>Drop a file or choose one to start a session.</p>
+            <p className="docx-panel__dropzone-heading">Open a document</p>
+            <p>Drop a .docx file or choose one to start a session.</p>
             <div className="docx-panel__dropzone-actions">
               <input
                 ref={inputRef}
@@ -303,6 +333,8 @@ export default function DocxPanel({
         editorRef={apiRef}
         workspaceId={workspaceId}
         hasTrackedChanges={hasTrackedChanges}
+        resolving={resolving}
+        onResolveChanges={handleResolveChanges}
       />
       <div className="docx-panel__editor">
         {loading && (

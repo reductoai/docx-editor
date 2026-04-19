@@ -11,6 +11,8 @@ interface Props {
   workspaceId: string;
   hasTrackedChanges?: boolean;
   agentStatus?: AgentStatus;
+  resolving?: boolean;
+  onResolveChanges?: (action: "accept" | "reject") => void;
 }
 
 function statusLabel(status: AgentStatus): string {
@@ -34,6 +36,8 @@ export default function DocxTitleBar({
   workspaceId,
   hasTrackedChanges = false,
   agentStatus = "idle",
+  resolving = false,
+  onResolveChanges,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(documentName);
@@ -60,30 +64,6 @@ export default function DocxTitleBar({
   function cancel() {
     setDraft(documentName);
     setEditing(false);
-  }
-
-  const [resolving, setResolving] = useState(false);
-
-  async function resolveChanges(action: "accept" | "reject") {
-    if (resolving) return;
-    setResolving(true);
-    try {
-      const res = await fetch(
-        `/api/workspaces/${workspaceId}/${action}-changes`,
-        { method: "POST" },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        console.warn(
-          `[DocxTitleBar] ${action}-changes failed:`,
-          body?.error ?? res.status,
-        );
-      }
-    } catch (err) {
-      console.warn(`[DocxTitleBar] ${action}-changes request failed:`, err);
-    } finally {
-      setResolving(false);
-    }
   }
 
   async function handleExport() {
@@ -172,7 +152,7 @@ export default function DocxTitleBar({
               type="button"
               className="docx-btn docx-btn--ghost"
               disabled={resolving}
-              onClick={() => resolveChanges("reject")}
+              onClick={() => onResolveChanges?.("reject")}
             >
               {resolving ? "Processing…" : "Reject all"}
             </button>
@@ -180,7 +160,7 @@ export default function DocxTitleBar({
               type="button"
               className="docx-btn docx-btn--primary"
               disabled={resolving}
-              onClick={() => resolveChanges("accept")}
+              onClick={() => onResolveChanges?.("accept")}
             >
               {resolving ? "Processing…" : "Accept all"}
             </button>

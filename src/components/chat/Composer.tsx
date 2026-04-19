@@ -2,10 +2,18 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "re
 import Icon from "../icons/Icon";
 import { MODEL_OPTIONS } from "../../lib/models";
 
+export interface Attachment {
+  name: string;
+  path: string;
+}
+
 interface Props {
   isStreaming: boolean;
   onSubmit: (text: string) => void;
   onStop?: () => void;
+  onAttach?: (file: File) => void;
+  onRemoveAttachment?: (index: number) => void;
+  attachments?: Attachment[];
   placeholder?: string;
   initialText?: string;
   /** Imperative hint: when this string changes, the text is replaced. */
@@ -21,6 +29,9 @@ export default function Composer({
   isStreaming,
   onSubmit,
   onStop,
+  onAttach,
+  onRemoveAttachment,
+  attachments = [],
   placeholder = "Ask Reducto to edit the document…",
   initialText = "",
   prefill,
@@ -30,6 +41,7 @@ export default function Composer({
 }: Props) {
   const [text, setText] = useState(initialText);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const activeModel =
@@ -73,10 +85,10 @@ export default function Composer({
 
   const submit = useCallback(() => {
     const trimmed = text.trim();
-    if (!trimmed || isStreaming) return;
+    if ((!trimmed && attachments.length === 0) || isStreaming) return;
     onSubmit(trimmed);
     setText("");
-  }, [text, isStreaming, onSubmit]);
+  }, [text, isStreaming, onSubmit, attachments.length]);
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -85,9 +97,36 @@ export default function Composer({
     }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    for (let i = 0; i < files.length; i++) {
+      onAttach?.(files[i]!);
+    }
+    e.target.value = "";
+  };
+
   return (
     <div className="chat-composer">
       <div className="composer-box">
+        {attachments.length > 0 && (
+          <div className="composer-attachments">
+            {attachments.map((att, i) => (
+              <span key={`${att.path}-${i}`} className="composer-attachment-chip">
+                <Icon name="paperclip" size={11} />
+                <span className="composer-attachment-chip__name">{att.name}</span>
+                <button
+                  type="button"
+                  className="composer-attachment-chip__remove"
+                  onClick={() => onRemoveAttachment?.(i)}
+                  aria-label={`Remove ${att.name}`}
+                >
+                  <Icon name="x" size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
           ref={taRef}
           className="composer-input"
@@ -99,19 +138,21 @@ export default function Composer({
           disabled={isStreaming}
         />
         <div className="composer-row">
-          <button type="button" className="cr-btn" title="Attach" disabled={isStreaming}>
-            <Icon name="plus" size={14} />
-          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="composer-file-input"
+            onChange={handleFileChange}
+            tabIndex={-1}
+          />
           <button
             type="button"
             className="cr-btn"
-            title="Reference section"
+            title="Attach file"
             disabled={isStreaming}
+            onClick={() => fileInputRef.current?.click()}
           >
-            <Icon name="atsign" size={14} />
-          </button>
-          <button type="button" className="cr-btn" title="Link" disabled={isStreaming}>
-            <Icon name="link" size={14} />
+            <Icon name="paperclip" size={14} />
           </button>
           <div className="composer-model-wrap" ref={modelMenuRef}>
             <button
@@ -174,7 +215,7 @@ export default function Composer({
             <button
               type="button"
               className="composer-send"
-              disabled={!text.trim()}
+              disabled={!text.trim() && attachments.length === 0}
               onClick={submit}
             >
               <Icon name="send" size={11} /> Send

@@ -23,6 +23,7 @@ import {
   ChevronDown,
   Copy,
   Pin,
+  Paperclip,
   type LucideProps,
 } from "lucide-react";
 
@@ -53,6 +54,7 @@ const ICONS = {
   caret: ChevronDown,
   copy: Copy,
   pin: Pin,
+  paperclip: Paperclip,
 } as const;
 
 export type IconName = keyof typeof ICONS;

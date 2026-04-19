@@ -43,12 +43,13 @@
   background: var(--brand-subtle-bg);
 }
 
-.docx-panel__dropzone h2 {
-  font-family: var(--font-serif);
-  font-size: var(--fs-lg-2);
-  font-weight: 400;
-  margin: 0 0 var(--space-2) 0;
-  color: var(--fg-primary);
+.docx-panel__dropzone-heading {
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  margin: 0 0 var(--space-1) 0;
+  color: var(--fg-secondary);
+  letter-spacing: 0.01em;
 }
 
 .docx-panel__dropzone p {
