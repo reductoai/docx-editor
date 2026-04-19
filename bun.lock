@@ -5,7 +5,7 @@
     "": {
       "name": "docx-editor",
       "dependencies": {
-        "@eigenpal/docx-js-editor": "^0.0.35",
+        "@eigenpal/docx-js-editor": "file:../docx-js-editor-fork/packages/react",
         "@mariozechner/pi-agent-core": "^0.67.67",
         "@mariozechner/pi-ai": "^0.67.67",
         "@mariozechner/pi-coding-agent": "^0.67.68",
@@ -162,7 +162,7 @@
 
     "@chevrotain/utils": ["@chevrotain/utils@12.0.0", "", {}, "sha512-lB59uJoaGIfOOL9knQqQRfhl9g7x8/wqFkp13zTdkRu1huG9kg6IJs1O8hqj9rs6h7orGxHJUKb+mX3rPbWGhA=="],
 
-    "@eigenpal/docx-js-editor": ["@eigenpal/docx-js-editor@0.0.35", "", { "dependencies": { "@radix-ui/react-select": "^2.2.6", "clsx": "^2.1.0", "prosemirror-commands": "^1.5.2", "prosemirror-dropcursor": "^1.8.2", "prosemirror-history": "^1.4.0", "prosemirror-keymap": "^1.2.2", "prosemirror-model": "^1.19.4", "prosemirror-state": "^1.4.3", "prosemirror-tables": "^1.8.5", "prosemirror-transform": "^1.10.2", "prosemirror-view": "^1.32.7", "sonner": "^2.0.7" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0" }, "optionalPeers": ["react", "react-dom"] }, "sha512-Lu2EWpZ7g33Glyyd3uJsO4f11St0CJ+rDOBTpn5YVYu4kTk3s92tuWww9cKpkhCrQL71NY8Yl/6GZckBAimBhg=="],
+    "@eigenpal/docx-js-editor": ["@eigenpal/docx-js-editor@file:../docx-js-editor-fork/packages/react", { "dependencies": { "@radix-ui/react-select": "^2.2.6", "clsx": "^2.1.0", "prosemirror-commands": "^1.5.2", "prosemirror-dropcursor": "^1.8.2", "prosemirror-history": "^1.4.0", "prosemirror-keymap": "^1.2.2", "prosemirror-model": "^1.19.4", "prosemirror-state": "^1.4.3", "prosemirror-tables": "^1.8.5", "prosemirror-transform": "^1.10.2", "prosemirror-view": "^1.32.7", "sonner": "^2.0.7" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0" }, "optionalPeers": ["react", "react-dom"] }],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.25.12", "", { "os": "aix", "cpu": "ppc64" }, "sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA=="],
 

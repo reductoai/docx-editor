@@ -8,6 +8,8 @@ interface Props {
   documentName: string;
   onDocumentNameChange: (name: string) => void;
   editorRef: RefObject<SuperDocRefApi | null>;
+  workspaceId: string;
+  hasTrackedChanges?: boolean;
   agentStatus?: AgentStatus;
 }
 
@@ -29,6 +31,8 @@ export default function DocxTitleBar({
   documentName,
   onDocumentNameChange,
   editorRef,
+  workspaceId,
+  hasTrackedChanges = false,
   agentStatus = "idle",
 }: Props) {
   const [editing, setEditing] = useState(false);
@@ -58,19 +62,27 @@ export default function DocxTitleBar({
     setEditing(false);
   }
 
-  function safeCall(method: "acceptAll" | "rejectAll") {
-    const ref = editorRef.current as unknown as Record<string, unknown> | null;
-    const fn = ref?.[method];
-    if (typeof fn === "function") {
-      try {
-        (fn as () => void).call(ref);
-      } catch (err) {
-        console.warn(`[DocxTitleBar] ${method}() threw:`, err);
-      }
-    } else {
-      console.warn(
-        `[DocxTitleBar] ${method}() is not implemented on the installed editor ref; no-op.`
+  const [resolving, setResolving] = useState(false);
+
+  async function resolveChanges(action: "accept" | "reject") {
+    if (resolving) return;
+    setResolving(true);
+    try {
+      const res = await fetch(
+        `/api/workspaces/${workspaceId}/${action}-changes`,
+        { method: "POST" },
       );
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        console.warn(
+          `[DocxTitleBar] ${action}-changes failed:`,
+          body?.error ?? res.status,
+        );
+      }
+    } catch (err) {
+      console.warn(`[DocxTitleBar] ${action}-changes request failed:`, err);
+    } finally {
+      setResolving(false);
     }
   }
 
@@ -154,20 +166,26 @@ export default function DocxTitleBar({
         </span>
       </div>
       <div className="docx-titlebar__actions">
-        <button
-          type="button"
-          className="docx-btn docx-btn--ghost"
-          onClick={() => safeCall("rejectAll")}
-        >
-          Reject all
-        </button>
-        <button
-          type="button"
-          className="docx-btn docx-btn--primary"
-          onClick={() => safeCall("acceptAll")}
-        >
-          Accept all
-        </button>
+        {hasTrackedChanges && (
+          <>
+            <button
+              type="button"
+              className="docx-btn docx-btn--ghost"
+              disabled={resolving}
+              onClick={() => resolveChanges("reject")}
+            >
+              {resolving ? "Processing…" : "Reject all"}
+            </button>
+            <button
+              type="button"
+              className="docx-btn docx-btn--primary"
+              disabled={resolving}
+              onClick={() => resolveChanges("accept")}
+            >
+              {resolving ? "Processing…" : "Accept all"}
+            </button>
+          </>
+        )}
         <button
           type="button"
           className="docx-btn docx-btn--outline"

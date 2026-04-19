@@ -1,13 +1,15 @@
 import { useEffect, useRef } from "react";
 import Message from "./Message";
+import ThinkingIndicator from "./ThinkingIndicator";
 import type { ChatMessage } from "../../lib/chat-types";
 
 interface Props {
   messages: ChatMessage[];
   density: "compact" | "detailed";
+  isStreaming: boolean;
 }
 
-export default function Conversation({ messages, density }: Props) {
+export default function Conversation({ messages, density, isStreaming }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   // Auto-stick to bottom. We serialize block counts + last streaming text
@@ -24,7 +26,18 @@ export default function Conversation({ messages, density }: Props) {
     const el = ref.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [dep]);
+  }, [dep, isStreaming]);
+
+  // Show the thinking indicator when streaming but nothing is actively
+  // being produced (no streaming text, no working tool call at the tail).
+  let showThinking = false;
+  if (isStreaming) {
+    const lastMsg = messages[messages.length - 1];
+    const lastBlock = lastMsg?.blocks[lastMsg.blocks.length - 1];
+    const hasActiveText = lastBlock?.type === "text" && lastBlock.streaming;
+    const hasWorkingTool = lastBlock?.type === "tool" && lastBlock.state === "working";
+    showThinking = !hasActiveText && !hasWorkingTool;
+  }
 
   return (
     <div className="chat-scroll" ref={ref}>
@@ -42,6 +55,14 @@ export default function Conversation({ messages, density }: Props) {
           />
         );
       })}
+      {showThinking && (
+        <div className="msg msg--continuation">
+          <div className="msg-avatar" />
+          <div className="msg-body">
+            <ThinkingIndicator />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

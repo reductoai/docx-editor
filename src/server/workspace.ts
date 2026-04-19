@@ -49,6 +49,27 @@ export function isTurnActive(id: string): boolean {
   return turnState.get(id) === true;
 }
 
+/**
+ * Returns the live headless-word session ID for this workspace, or null if
+ * no valid session is active.
+ */
+export async function getSessionId(ws: Workspace): Promise<string | null> {
+  const sessionFile = path.join(ws.dir, "headless_word_session.json");
+  let storedId: string | null = null;
+  try {
+    const raw = await readFile(sessionFile, "utf-8");
+    const parsed = JSON.parse(raw) as { session_id?: unknown };
+    if (typeof parsed.session_id === "string" && parsed.session_id.trim()) {
+      storedId = parsed.session_id.trim();
+    }
+  } catch {
+    return null;
+  }
+  if (!storedId || storedId === ws.id) return null;
+  const sessions = await listSessions();
+  return sessions[storedId] ? storedId : null;
+}
+
 function formatDateSegment(date: Date): string {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");

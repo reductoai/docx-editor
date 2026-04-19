@@ -2,6 +2,12 @@
    DOCX panel — left pane wrapper, title bar, editor chrome
    ============================================================ */
 
+/* Hide the editor library's built-in title/menu bar (File, Format, etc.)
+   — we use our own DocxTitleBar instead. */
+.docx-panel [data-testid="title-bar"] {
+  display: none;
+}
+
 .docx-panel {
   display: flex;
   flex-direction: column;

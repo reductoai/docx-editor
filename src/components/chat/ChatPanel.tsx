@@ -68,7 +68,7 @@ export default function ChatPanel({
           </button>
         </div>
       )}
-      <Conversation messages={messages} density={pillDensity} />
+      <Conversation messages={messages} density={pillDensity} isStreaming={isStreaming} />
       <Composer
         isStreaming={isStreaming || !workspaceId}
         placeholder={composerPlaceholder}

@@ -3,6 +3,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   createWorkspace,
+  getSessionId,
   getWorkspace,
   isTurnActive,
   isValidWorkspaceId,
@@ -10,7 +11,8 @@ import {
 } from "../workspace";
 import { appendActivity } from "../activity";
 import { publish, subscribe } from "../sse";
-import { ensureCheckpointState, getCurrentSeq } from "../checkpoint";
+import { ensureCheckpointState, getCurrentSeq, scheduleCheckpoint } from "../checkpoint";
+import { executeInSession } from "../headless-word";
 import type { WorkspaceEvent } from "../../lib/types";
 
 export const workspacesRouter = new Hono();
@@ -307,6 +309,70 @@ workspacesRouter.get("/:id/activity", async (c) => {
     events,
   });
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/workspaces/:id/accept-changes — accept all tracked changes
+// ---------------------------------------------------------------------------
+workspacesRouter.post("/:id/accept-changes", async (c) => {
+  return resolveTrackedChanges(c, ".uno:AcceptAllTrackedChanges", "accept-all-changes");
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/workspaces/:id/reject-changes — reject all tracked changes
+// ---------------------------------------------------------------------------
+workspacesRouter.post("/:id/reject-changes", async (c) => {
+  return resolveTrackedChanges(c, ".uno:RejectAllTrackedChanges", "reject-all-changes");
+});
+
+async function resolveTrackedChanges(
+  c: { req: { param: (k: string) => string }; json: (body: unknown, status?: number) => Response },
+  unoCommand: string,
+  action: string,
+) {
+  const id = c.req.param("id");
+  if (!isValidWorkspaceId(id)) {
+    return c.json({ ok: false, error: "Invalid workspace id." }, 400);
+  }
+  const workspace = await getWorkspace(id);
+  if (!workspace) {
+    return c.json({ ok: false, error: "Unknown workspace." }, 404);
+  }
+  if (isTurnActive(id)) {
+    return c.json({ ok: false, error: "turn-in-progress" }, 409);
+  }
+
+  const sessionId = await getSessionId(workspace);
+  if (!sessionId) {
+    return c.json(
+      { ok: false, error: "No active headless-word session." },
+      500,
+    );
+  }
+
+  const code = `
+ctx = uno.getComponentContext()
+smgr = ctx.ServiceManager
+helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+frame = doc.getCurrentController().getFrame()
+helper.executeDispatch(frame, "${unoCommand}", "", 0, tuple())
+result = {"action": "${action}"}
+`;
+
+  try {
+    await executeInSession(sessionId, code);
+  } catch (err) {
+    return c.json(
+      {
+        ok: false,
+        error: `Failed to ${action}: ${err instanceof Error ? err.message : String(err)}`,
+      },
+      500,
+    );
+  }
+
+  scheduleCheckpoint(id, `user:${action}`);
+  return c.json({ ok: true });
+}
 
 // ---------------------------------------------------------------------------
 // DELETE /api/workspaces/:id — stub

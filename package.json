@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@eigenpal/docx-js-editor": "^0.0.35",
+    "@eigenpal/docx-js-editor": "file:../docx-js-editor-fork/packages/react",
     "@mariozechner/pi-agent-core": "^0.67.67",
     "@mariozechner/pi-ai": "^0.67.67",
     "@mariozechner/pi-coding-agent": "^0.67.68",

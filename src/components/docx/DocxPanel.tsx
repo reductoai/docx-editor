@@ -21,46 +21,6 @@ interface Props {
 
 const AGENT_TOAST_MS = 3000;
 
-// --- Comments-sidebar persistence ------------------------------------------
-// `@eigenpal/docx-js-editor@0.0.35` holds the comments-sidebar open/closed
-// state in an internal `useState(false)` and resets it every time
-// `loadDocumentBuffer` runs (via its internal `Fe()` cleanup). There's no
-// prop / imperative method to control it. The toolbar button is rendered
-// with `aria-pressed={active}` and `aria-label="Toggle comments sidebar"`,
-// so we read/click it directly.
-const SIDEBAR_TOGGLE_SELECTOR = '[aria-label="Toggle comments sidebar"]';
-
-function findCommentsToggleButton(): HTMLButtonElement | null {
-  return document.querySelector<HTMLButtonElement>(SIDEBAR_TOGGLE_SELECTOR);
-}
-
-function isCommentsSidebarOpen(): boolean {
-  const btn = findCommentsToggleButton();
-  return btn?.getAttribute("aria-pressed") === "true";
-}
-
-/**
- * Re-opens the comments sidebar if a post-`loadDocumentBuffer` render
- * left it closed. We poll briefly because the toolbar button re-renders
- * across the load and the DOM may need a tick to reflect the library's
- * current state.
- */
-function restoreCommentsSidebar(): void {
-  const started = Date.now();
-  const attempt = () => {
-    const btn = findCommentsToggleButton();
-    if (btn) {
-      if (btn.getAttribute("aria-pressed") !== "true") btn.click();
-      return;
-    }
-    if (Date.now() - started < 1500) {
-      setTimeout(attempt, 60);
-    }
-  };
-  // Small delay lets React commit the post-load render before we peek.
-  setTimeout(attempt, 80);
-}
-
 export default function DocxPanel({
   workspaceId,
   onWorkspaceCreated,
@@ -86,6 +46,40 @@ export default function DocxPanel({
   // Underlying library ref + our contract ref.
   const libraryRef = useRef<DocxEditorRef | null>(null);
   const apiRef = useDocxRef();
+
+  // Whether the loaded document contains tracked changes (insertion/deletion marks).
+  const [hasTrackedChanges, setHasTrackedChanges] = useState(false);
+
+  const checkTrackedChanges = useCallback(() => {
+    const editorRef = libraryRef.current?.getEditorRef?.();
+    if (!editorRef) {
+      setHasTrackedChanges(false);
+      return;
+    }
+    const state = editorRef.getState();
+    if (!state) {
+      setHasTrackedChanges(false);
+      return;
+    }
+    const insertionType = state.schema.marks.insertion;
+    const deletionType = state.schema.marks.deletion;
+    if (!insertionType && !deletionType) {
+      setHasTrackedChanges(false);
+      return;
+    }
+    let found = false;
+    state.doc.descendants((node) => {
+      if (found) return false;
+      if (!node.isInline) return;
+      for (const mark of node.marks) {
+        if (mark.type === insertionType || mark.type === deletionType) {
+          found = true;
+          return false;
+        }
+      }
+    });
+    setHasTrackedChanges(found);
+  }, []);
 
   // Track the last checkpoint seq we've applied to the editor so stale
   // events (out-of-order delivery, reconnect replays) are dropped.
@@ -115,11 +109,16 @@ export default function DocxPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { onChange: onEditorChange, toast } = useDocxSync({
+  const { onChange: onSyncChange, toast } = useDocxSync({
     workspaceId,
     editorRef: apiRef,
     isAgentTurn,
   });
+
+  const onEditorChange = useCallback(() => {
+    onSyncChange();
+    checkTrackedChanges();
+  }, [onSyncChange, checkTrackedChanges]);
 
   const showAgentToast = useCallback((message: string) => {
     setAgentToast(message);
@@ -164,18 +163,9 @@ export default function DocxPanel({
           const buf = await res.arrayBuffer();
           // Re-check after the await in case a newer checkpoint already landed.
           if (seq <= lastAppliedSeqRef.current) return;
-          // Snapshot the comments-sidebar state BEFORE the reload so we
-          // can restore it if the library's internal loadDocument resets
-          // it. `loadDocument` calls `Fe()` which sets `an(false)` and
-          // resets the "auto-open if there are tracked changes" guard;
-          // the re-open effect doesn't always win the race on a fresh
-          // parse, leaving the sidebar closed between checkpoints. We
-          // only re-open if the user had it open before — closing is
-          // still respected.
-          const wasSidebarOpen = isCommentsSidebarOpen();
           await libraryRef.current?.loadDocumentBuffer(buf);
           lastAppliedSeqRef.current = seq;
-          if (wasSidebarOpen) restoreCommentsSidebar();
+          checkTrackedChanges();
           onCheckpointApplied?.();
           showAgentToast(
             sourceTool
@@ -311,6 +301,8 @@ export default function DocxPanel({
         documentName={documentName}
         onDocumentNameChange={onDocumentNameChange}
         editorRef={apiRef}
+        workspaceId={workspaceId}
+        hasTrackedChanges={hasTrackedChanges}
       />
       <div className="docx-panel__editor">
         {loading && (
@@ -333,8 +325,8 @@ export default function DocxPanel({
             showOutlineButton={false}
             showZoomControl={false}
             showPrintButton={false}
-            documentName={documentName}
-            documentNameEditable={false}
+            commentsEnabled
+            onEditorViewReady={checkTrackedChanges}
             onChange={onEditorChange}
           />
         )}

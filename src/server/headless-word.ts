@@ -305,6 +305,17 @@ export async function saveDocument(sessionId: SessionId): Promise<Buffer> {
   }
 }
 
+/**
+ * Runs a UNO Python snippet inside an existing headless-word session.
+ * The code has access to `doc`, `ctx`, `smgr`, and must set `result`.
+ */
+export async function executeInSession<T = unknown>(
+  sessionId: SessionId,
+  code: string,
+): Promise<T> {
+  return runHeadlessWordJson<T>(["execute", sessionId, "--code", code]);
+}
+
 export async function closeSession(sessionId: SessionId): Promise<void> {
   try {
     await runHeadlessWord(["close", sessionId]);
