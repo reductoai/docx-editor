@@ -1247,7 +1247,7 @@ export const DocxEditor = forwardRef<DocxEditorRef, DocxEditorProps>(function Do
     trackedChangesLoadedRef.current = false;
     setComments([]);
     setHeadingInfos([]);
-    setShowCommentsSidebar(false);
+    if (!commentsEnabled) setShowCommentsSidebar(false);
     setIsAddingComment(false);
     setCommentSelectionRange(null);
     setAddCommentYPosition(null);
