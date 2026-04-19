@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { stat } from "node:fs/promises";
 import {
   AuthStorage,
   DefaultResourceLoader,
@@ -11,10 +10,14 @@ import {
   type AgentSessionEvent,
 } from "@mariozechner/pi-coding-agent";
 import { buildSystemPrompt, buildUserPrompt } from "../../agent/prompts";
+import { DEFAULT_MODEL_ID, isValidModelId } from "../../lib/models";
 import { scheduleCheckpoint } from "../checkpoint";
 import {
+  HEADLESS_WORD_SKILL,
+  README_AGENT,
   getWorkspace,
   isValidWorkspaceId,
+  loadCurrentDocumentText,
   refreshDocumentSnapshots,
   setTurnState,
 } from "../workspace";
@@ -43,18 +46,18 @@ function getSharedRegistry(): ModelRegistry {
   return sharedRegistry;
 }
 
-function resolveAnthropicModel(): ReturnType<ModelRegistry["find"]> {
+function resolveAnthropicModel(
+  modelId: string,
+): ReturnType<ModelRegistry["find"]> {
   const registry = getSharedRegistry();
-  // Match the same default the original useAgent used. Users who want a
-  // different model should override in settings later.
-  const model = registry.find("anthropic", "claude-sonnet-4-5");
+  const model = registry.find("anthropic", modelId);
   if (!model) {
     const available = registry
       .getAvailable()
       .map((m) => `${m.provider}/${m.id}`)
       .join(", ");
     throw new Error(
-      `anthropic/claude-sonnet-4-5 not in registry. Available: ${available}`,
+      `anthropic/${modelId} not in registry. Available: ${available}`,
     );
   }
   return model;
@@ -65,7 +68,7 @@ function resolveAnthropicModel(): ReturnType<ModelRegistry["find"]> {
 // Body: { workspaceId: string, userText: string }
 // ---------------------------------------------------------------------------
 chatRouter.post("/turn", async (c) => {
-  let body: { workspaceId?: unknown; userText?: unknown };
+  let body: { workspaceId?: unknown; userText?: unknown; model?: unknown };
   try {
     body = (await c.req.json()) as typeof body;
   } catch {
@@ -78,6 +81,7 @@ chatRouter.post("/turn", async (c) => {
   if (typeof userText !== "string" || userText.trim().length === 0) {
     return c.json({ ok: false, error: "userText required" }, 400);
   }
+  const modelId = isValidModelId(body.model) ? body.model : DEFAULT_MODEL_ID;
   const workspace = await getWorkspace(workspaceId);
   if (!workspace) {
     return c.json({ ok: false, error: "unknown workspace" }, 404);
@@ -104,39 +108,27 @@ chatRouter.post("/turn", async (c) => {
     write(`event: ${kind}\ndata: ${JSON.stringify(payload)}\n\n`);
   };
 
-  // Track working.docx mtime/size so we can fire a checkpoint when a tool
-  // call actually changes the on-disk doc. Lightweight replacement for
-  // fs.watch which was racy against our own save-back writes.
-  let lastStat: { mtimeMs: number; size: number } | null = null;
-  try {
-    const s = await stat(workspace.workingPath);
-    lastStat = { mtimeMs: s.mtimeMs, size: s.size };
-  } catch {
-    lastStat = null;
-  }
-  const maybeFireCheckpoint = async (sourceTool: string) => {
-    try {
-      const s = await stat(workspace.workingPath);
-      const changed =
-        !lastStat ||
-        s.mtimeMs !== lastStat.mtimeMs ||
-        s.size !== lastStat.size;
-      if (changed) {
-        lastStat = { mtimeMs: s.mtimeMs, size: s.size };
-        scheduleCheckpoint(workspace.id, sourceTool);
-        // Also refresh document_text.current.json + document_structure.current.json
-        // so the agent's next `read` of those files returns live content,
-        // without it having to run `./docx-tool refresh`.
-        refreshDocumentSnapshots(workspace).catch((err) => {
-          console.warn(
-            `[chat] snapshot refresh failed for ${workspace.id}:`,
-            (err as Error).message,
-          );
-        });
-      }
-    } catch {
-      // working.docx missing is fatal elsewhere — ignore here.
-    }
+  // After every tool call we unconditionally schedule a checkpoint. The
+  // live edits live in the headless-word session (in memory) — nothing hits
+  // `working.docx` on disk until `fire()` calls `saveSessionInPlace`. So a
+  // "did the file change?" check is circular.
+  //
+  // `scheduleCheckpoint` is already debounced (MIN_INTERVAL_MS gap between
+  // fires) and coalesces rapid tool calls into a single save+publish. If
+  // the agent ran a read-only tool the checkpoint still fires, but the
+  // resulting doc bytes are byte-identical to the last seq — cheap for the
+  // browser to re-apply.
+  const fireCheckpointForTool = (sourceTool: string) => {
+    scheduleCheckpoint(workspace.id, sourceTool);
+    // Refresh text/structure snapshots so the agent's next `read` of
+    // document_text.current.json / document_structure.current.json sees
+    // live content instead of the seeded stale placeholder.
+    refreshDocumentSnapshots(workspace).catch((err) => {
+      console.warn(
+        `[chat] snapshot refresh failed for ${workspace.id}:`,
+        (err as Error).message,
+      );
+    });
   };
 
   const stream = new ReadableStream<Uint8Array>({
@@ -176,7 +168,14 @@ chatRouter.post("/turn", async (c) => {
       });
 
       try {
-        const model = resolveAnthropicModel();
+        const model = resolveAnthropicModel(modelId);
+
+        // Refresh doc snapshots BEFORE building the system prompt so the
+        // inlined document text reflects current state, not whatever
+        // placeholder was seeded at workspace creation.
+        await refreshDocumentSnapshots(workspace).catch(() => undefined);
+        const documentText = await loadCurrentDocumentText(workspace);
+
         const settingsManager = SettingsManager.inMemory({
           compaction: { enabled: true },
           retry: { enabled: true, maxRetries: 3 },
@@ -184,7 +183,12 @@ chatRouter.post("/turn", async (c) => {
         const resourceLoader = new DefaultResourceLoader({
           cwd: workspace.dir,
           settingsManager,
-          systemPromptOverride: () => buildSystemPrompt(),
+          systemPromptOverride: () =>
+            buildSystemPrompt({
+              readmeAgent: README_AGENT,
+              headlessWordSkill: HEADLESS_WORD_SKILL,
+              documentText,
+            }),
         });
         await resourceLoader.reload();
 
@@ -201,23 +205,21 @@ chatRouter.post("/turn", async (c) => {
         });
         session = created.session;
 
-        // Refresh snapshots once before the agent sees them so the first
-        // `read document_text.current.json` is never served a stale placeholder.
-        await refreshDocumentSnapshots(workspace).catch(() => undefined);
-
         unsubscribe = session.subscribe((event: AgentSessionEvent) => {
           // Forward every event to the browser with the same `type` string
           // the client's chat rendering already expects.
           send(event.type, event);
-          // Auto-refresh working.docx snapshot whenever a tool call finished.
+          // Schedule a checkpoint after every tool call so the browser
+          // gets a live preview of the agent's edits.
           if (event.type === "tool_execution_end") {
-            void maybeFireCheckpoint(`tool:${event.toolName}`);
+            fireCheckpointForTool(`tool:${event.toolName}`);
           }
         });
 
         await session.prompt(buildUserPrompt(userText));
-        // One final check in case the last write beat the stat poll.
-        await maybeFireCheckpoint("turn-end");
+        // Belt-and-suspenders: fire one more checkpoint at turn end in case
+        // the last tool-call's debounce window hadn't flushed yet.
+        fireCheckpointForTool("turn-end");
         send("done", { ok: true });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -246,6 +248,32 @@ chatRouter.post("/turn", async (c) => {
       "X-Workspace-Id": workspace.id,
     },
   });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/chat/test/schedule-checkpoint — replay-test escape hatch
+// Body: { workspaceId: string, sourceTool?: string }
+//
+// Lets `scripts/replay-trace.ts` (and other non-LLM tests) trigger the same
+// checkpoint machinery the real agent loop invokes on every tool_execution_end.
+// Only wired up in dev; never called from the browser.
+// ---------------------------------------------------------------------------
+chatRouter.post("/test/schedule-checkpoint", async (c) => {
+  let body: { workspaceId?: unknown; sourceTool?: unknown };
+  try {
+    body = (await c.req.json()) as typeof body;
+  } catch {
+    return c.json({ ok: false, error: "invalid JSON body" }, 400);
+  }
+  const { workspaceId, sourceTool } = body;
+  if (typeof workspaceId !== "string" || !isValidWorkspaceId(workspaceId)) {
+    return c.json({ ok: false, error: "invalid workspaceId" }, 400);
+  }
+  const workspace = await getWorkspace(workspaceId);
+  if (!workspace) return c.json({ ok: false, error: "unknown workspace" }, 404);
+  const tag = typeof sourceTool === "string" && sourceTool ? sourceTool : "test";
+  scheduleCheckpoint(workspace.id, tag);
+  return c.json({ ok: true, sourceTool: tag });
 });
 
 // ---------------------------------------------------------------------------

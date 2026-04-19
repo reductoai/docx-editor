@@ -25,6 +25,13 @@ export interface ToolBlock {
   label: string;
   detail?: string;
   body?: string;
+  /** Raw arguments the agent passed to the tool. Stashed so the UI can
+   *  show the full invocation when the user expands the pill. */
+  args?: unknown;
+  /** Raw result payload from the tool (after execution). */
+  result?: unknown;
+  /** Error / success signal from the server. */
+  isError?: boolean;
 }
 
 export interface ActionBlock {

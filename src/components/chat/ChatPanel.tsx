@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { useAgent } from "../../hooks/useAgent";
+import { DEFAULT_MODEL_ID } from "../../lib/models";
 import ChatHeader from "./ChatHeader";
 import Composer from "./Composer";
-import ComposerHints from "./ComposerHints";
 import Conversation from "./Conversation";
 import SessionChip from "./SessionChip";
 import TweaksPanel, { type PillDensity } from "./TweaksPanel";
@@ -13,12 +13,6 @@ interface Props {
   /** Notifies the parent when the agent enters / exits a streaming turn. */
   onStreamingChange?: (isStreaming: boolean) => void;
 }
-
-const HINTS = [
-  "Strengthen §2 standard of care",
-  "Add residuals carve-out",
-  "Why Delaware over New York?",
-];
 
 export default function ChatPanel({
   workspaceId,
@@ -35,14 +29,12 @@ export default function ChatPanel({
     exportTrace,
   } = useAgent(workspaceId);
   const [pillDensity, setPillDensity] = useState<PillDensity>("compact");
+  const [modelId, setModelId] = useState<string>(DEFAULT_MODEL_ID);
   // TODO(agent-authoring): wiring this to DocxEditor's `author` prop would
   // require threading a prop through App → DocxPanel → DocxEditor, which
   // exceeds the polish-unit scope control. Currently a no-op toggle.
   const [agentAuthoring, setAgentAuthoring] = useState(true);
   const [tweaksOpen, setTweaksOpen] = useState(false);
-  const [prefill, setPrefillNonce] = useState<{ text: string; nonce: number } | undefined>(
-    undefined,
-  );
 
   // Bubble streaming transitions up to the parent so the DocxPanel can
   // pause its debounced PUTs during agent turns.
@@ -77,19 +69,15 @@ export default function ChatPanel({
         </div>
       )}
       <Conversation messages={messages} density={pillDensity} />
-      <ComposerHints
-        hints={HINTS}
-        onPick={(h) => setPrefillNonce({ text: h, nonce: Date.now() })}
-      />
       <Composer
         isStreaming={isStreaming || !workspaceId}
         placeholder={composerPlaceholder}
         onSubmit={(text) => {
-          void sendMessage(text);
+          void sendMessage(text, { model: modelId });
         }}
         onStop={cancel}
-        prefill={prefill?.text}
-        prefillNonce={prefill?.nonce}
+        modelId={modelId}
+        onModelChange={setModelId}
       />
       {workspaceId && (
         <div className="chat-metrics">

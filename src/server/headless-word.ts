@@ -155,6 +155,27 @@ export async function getDocumentText(sessionId: SessionId): Promise<unknown> {
 }
 
 /**
+ * Returns true iff the session's in-memory document has unsaved edits.
+ * Used to gate the checkpoint save — reading docs or running read-only
+ * helper subcommands should never round-trip the DOCX through LibreOffice.
+ */
+export async function isSessionModified(sessionId: SessionId): Promise<boolean> {
+  const code = `result = {"modified": bool(doc.isModified())}`;
+  try {
+    const payload = await runHeadlessWordJson<{ modified?: unknown }>([
+      "execute",
+      sessionId,
+      "--code",
+      code,
+    ]);
+    return payload?.modified === true;
+  } catch {
+    // If we can't tell, assume modified so we don't miss a real edit.
+    return true;
+  }
+}
+
+/**
  * Writes the LibreOffice user profile (first / last name) so tracked changes
  * made by the agent are attributed to a proper name instead of "Unknown
  * Author". The setting is daemon-wide, so we only need one successful call
@@ -175,9 +196,11 @@ cfg = smgr.createInstanceWithContext(
 arg = PropertyValue()
 arg.Name = "nodepath"
 arg.Value = "/org.openoffice.UserProfile/Data"
-writer = cfg.createInstanceWithArgumentsAndContext(
+# ConfigurationProvider exposes an XMultiServiceFactory; the
+# "...AndContext" variant does NOT exist on this service.
+writer = cfg.createInstanceWithArguments(
     "com.sun.star.configuration.ConfigurationUpdateAccess",
-    (arg,), ctx
+    (arg,),
 )
 writer.setPropertyValue("givenname", "${esc(firstName)}")
 writer.setPropertyValue("sn", "${esc(lastName)}")

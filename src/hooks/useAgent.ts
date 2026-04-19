@@ -36,6 +36,12 @@ type AssistantSubEvent =
       contentIndex: number;
     };
 
+export interface SendMessageOptions {
+  /** Anthropic model id (e.g. `claude-sonnet-4-5`). Server falls back to its
+   *  own default if omitted or invalid. */
+  model?: string;
+}
+
 export interface AgentChatState {
   messages: ChatMessage[];
   isStreaming: boolean;
@@ -43,7 +49,7 @@ export interface AgentChatState {
   tokensIn: number;
   tokensOut: number;
   lastToolName: string | null;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, options?: SendMessageOptions) => Promise<void>;
   cancel: () => void;
   dismissError: () => void;
   /** Download a debug bundle (JSON) of the current session's trace. */
@@ -57,7 +63,7 @@ const NOOP_STATE: AgentChatState = {
   tokensIn: 0,
   tokensOut: 0,
   lastToolName: null,
-  sendMessage: async () => undefined,
+  sendMessage: async (_text: string, _options?: SendMessageOptions) => undefined,
   cancel: () => undefined,
   dismissError: () => undefined,
   exportTrace: async () => undefined,
@@ -245,7 +251,7 @@ export function useAgent(workspaceId: string | null): AgentChatState {
   const dismissError = useCallback(() => setErrorMessage(null), []);
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, options?: SendMessageOptions) => {
       const trimmed = text.trim();
       if (!trimmed || !workspaceId) return;
       if (inFlightRef.current) return; // ignore while a turn is running
@@ -274,7 +280,11 @@ export function useAgent(workspaceId: string | null): AgentChatState {
             "Content-Type": "application/json",
             Accept: "text/event-stream",
           },
-          body: JSON.stringify({ workspaceId, userText: trimmed }),
+          body: JSON.stringify({
+            workspaceId,
+            userText: trimmed,
+            ...(options?.model ? { model: options.model } : {}),
+          }),
           signal: controller.signal,
         });
         if (!res.ok || !res.body) {
@@ -521,6 +531,7 @@ function handleEvent(event: AgentEvent, h: Handlers) {
             state: "working",
             name: event.toolName,
             label: formatToolExecutionLabel(event.toolName, event.args),
+            args: event.args,
           }),
         ),
       );
@@ -535,12 +546,14 @@ function handleEvent(event: AgentEvent, h: Handlers) {
           updateToolBlock(blocks, event.toolCallId, {
             state: event.isError ? "error" : "done",
             detail: errorText,
+            result: event.result,
+            isError: event.isError,
           }),
         ),
       );
-      if (event.isError && errorText && !isAbortString(errorText)) {
-        setErrorMessage(errorText);
-      }
+      // Don't surface tool-call errors as a top-level toast — they're
+      // expected (ambiguous matches, missing paths, etc.) and already
+      // rendered on the tool block itself. The agent recovers on its own.
       break;
     }
     case "agent_end": {

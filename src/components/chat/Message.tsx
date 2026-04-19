@@ -61,6 +61,8 @@ export default function Message({ message, density, showHeader = true }: Props) 
                 detail={block.detail}
                 body={block.body}
                 density={density}
+                args={block.args}
+                result={block.result}
               />
             );
           }

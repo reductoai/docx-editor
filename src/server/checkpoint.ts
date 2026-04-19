@@ -1,5 +1,6 @@
 import { watch, type FSWatcher } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   closeSession,
@@ -8,6 +9,7 @@ import {
   saveDocument,
   saveSessionInPlace,
 } from "./headless-word";
+import { extractSemanticContent, sanitizeDocxFile } from "./ooxml-sanitize";
 import { publish } from "./sse";
 import { getWorkspace, type Workspace } from "./workspace";
 import { appendActivity } from "./activity";
@@ -25,6 +27,15 @@ interface CheckpointState {
   queued: boolean;
   watcher?: FSWatcher;
   suppressNextWatchUntil: number;
+  /** SHA-256 of the post-save DOCX's normalized `word/document.xml`
+   *  (rsid attrs stripped, LibreOffice round-trip artifacts stripped)
+   *  at the last published checkpoint. Comparing against this lets us
+   *  detect real content changes while ignoring the rsid churn
+   *  LibreOffice produces on every save. Missing that normalization is
+   *  what made an earlier gate over-publish on every idle read, and
+   *  hashing just `getDocumentText()` instead missed mutations inside
+   *  table cells — a normalized document.xml hash catches both. */
+  lastSemanticHash: string | null;
 }
 
 const states = new Map<string, CheckpointState>();
@@ -40,6 +51,7 @@ function getOrCreate(workspace: Workspace): CheckpointState {
     inFlight: false,
     queued: false,
     suppressNextWatchUntil: 0,
+    lastSemanticHash: null,
   };
   states.set(workspace.id, state);
   startFsWatcher(state);
@@ -98,6 +110,14 @@ async function fire(state: CheckpointState): Promise<void> {
       // edits from the checkpoint.
       state.suppressNextWatchUntil = Date.now() + 1500;
       const sharedSessionId = await readSharedSessionId(workspace);
+
+      // Always save + sanitize. The gate that decides whether to
+      // publish is computed AFTER this, on the normalized post-save
+      // contents, so rsid churn from an idempotent save doesn't
+      // translate into a spurious browser refresh. We can't reliably
+      // predict "did the session change?" up front because
+      // `get-document-text` doesn't include table content, so a cell
+      // edit slips past that kind of pre-save check.
       if (sharedSessionId) {
         await saveSessionInPlace(sharedSessionId);
       } else {
@@ -109,6 +129,26 @@ async function fire(state: CheckpointState): Promise<void> {
           await closeSession(session);
         }
       }
+      // Strip LibreOffice round-trip artifacts (numPr w:numId=0, etc.)
+      // that make `@eigenpal/docx-js-editor` mis-render Title paragraphs.
+      // See src/server/ooxml-sanitize.ts.
+      await sanitizeDocxFile(workspace.workingPath).catch((err) => {
+        console.warn(
+          `[checkpoint] sanitize failed for ${workspace.id}:`,
+          (err as Error).message,
+        );
+      });
+
+      // Semantic-content gate: hash the post-save `word/document.xml`
+      // with rsid attrs stripped. Real mutations change the hash; a
+      // pure idempotent save (rsid-only diff) does not. Skip the
+      // publish if the hash hasn't moved since our last broadcast.
+      const semantic = await extractSemanticContent(workspace.workingPath);
+      const currentHash = createHash("sha256").update(semantic).digest("hex");
+      if (currentHash === state.lastSemanticHash) {
+        return; // `finally` runs cleanup; seq is NOT bumped.
+      }
+      state.lastSemanticHash = currentHash;
     } catch (err) {
       // headless-word failure: leave working.docx as-is and surface the
       // error on the SSE stream so the UI can flag it.

@@ -7,14 +7,26 @@
 // guidance here reflects that, and trims the "refresh + save + agent_notes"
 // busywork that was driving 50+ tool-call loops on trivial edits.
 
-export function buildSystemPrompt(): string {
-  return [
+export interface SystemPromptContext {
+  /** Raw contents of `README_AGENT.md` as written into the workspace. */
+  readmeAgent: string;
+  /** Raw contents of `HEADLESS_WORD_SKILL.md`. */
+  headlessWordSkill: string;
+  /** JSON string of the live `document_text.current.json` snapshot, or
+   *  null if the snapshot couldn't be read (e.g. fresh workspace before
+   *  the first refresh). */
+  documentText: string | null;
+}
+
+export function buildSystemPrompt(ctx: SystemPromptContext): string {
+  const rules = [
     "You are editing a DOCX document through workspace-local helper commands.",
     "Operate conservatively and keep changes tightly scoped to the user's instruction.",
     "",
     "Workflow rules:",
-    "- On your first turn with a new document, read `README_AGENT.md` and `HEADLESS_WORD_SKILL.md` once to learn the helper vocabulary. You do not need to re-read them on later turns.",
-    "- Before editing, read `document_text.current.json` (and `document_structure.current.json` when structure matters) so you can ground replacements in the actual text. These snapshots are refreshed automatically on every read — do NOT call `./docx-tool refresh`.",
+    "- The helper reference (README_AGENT.md, HEADLESS_WORD_SKILL.md) and the current document's paragraph-level text are ALREADY INLINED below — do NOT spend tool calls re-reading those files at the top of a turn.",
+    "- After you make edits you can re-read `document_text.current.json` to see the updated paragraph list. The snapshot is refreshed automatically after every tool call — do NOT call `./docx-tool refresh`.",
+    "- Read `document_structure.current.json` only when you actually need structural detail (table indices, list numbering, etc.). It is not required for plain text edits.",
     "- Use `./docx-tool` for all DOCX edits. Use the built-in file tools only for plain text files in the workspace.",
     "- Do not modify `working.docx` / `original.docx` / PNGs directly — always go through `./docx-tool`.",
     "- Do not call `headless-word` directly.",
@@ -41,6 +53,36 @@ export function buildSystemPrompt(): string {
     "- If the instruction is ambiguous (e.g. multiple matches), ask the user which occurrence they mean instead of guessing.",
     "",
     "After a successful edit, confirm to the user in one short sentence what you changed and stop. The host app will refresh the editor view automatically.",
+  ].join("\n");
+
+  const docSection = ctx.documentText
+    ? [
+        "# Current document text (document_text.current.json)",
+        "",
+        "This is the live paragraph-level dump of the working DOCX at turn start.",
+        "Refer to it directly instead of running `read document_text.current.json`.",
+        "",
+        "```json",
+        ctx.documentText,
+        "```",
+      ].join("\n")
+    : "# Current document text\n\n(not yet available — you may read `document_text.current.json` once to load it)";
+
+  return [
+    rules,
+    "",
+    "---",
+    "# Helper reference (README_AGENT.md)",
+    "",
+    ctx.readmeAgent,
+    "",
+    "---",
+    "# Headless Word skill notes (HEADLESS_WORD_SKILL.md)",
+    "",
+    ctx.headlessWordSkill,
+    "",
+    "---",
+    docSection,
   ].join("\n");
 }
 

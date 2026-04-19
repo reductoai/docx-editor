@@ -20,7 +20,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 
-const BASE = process.env.DOCX_TEST_BASE ?? "http://localhost:3000";
+const BASE = process.env.DOCX_TEST_BASE ?? "http://localhost:3001";
 
 const FIXTURE =
   process.env.DOCX_TEST_FIXTURE ??

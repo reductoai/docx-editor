@@ -10,6 +10,7 @@ import {
   openSession,
   setLibreOfficeAuthor,
 } from "./headless-word";
+import { sanitizeDocxFile } from "./ooxml-sanitize";
 
 export const WORKSPACES_ROOT = path.join(process.cwd(), "workspaces");
 
@@ -160,6 +161,18 @@ export async function createWorkspace(opts: {
   await writeFile(originalPath, bytes);
   await writeFile(workingPath, bytes);
 
+  // Strip LibreOffice round-trip artifacts (numPr w:numId=0 on Title
+  // paragraphs, etc.) from the working copy before the browser first
+  // loads it — otherwise the user's initial render is the unsanitized
+  // upload, and SuperDoc collapses title paragraphs. This is idempotent
+  // for files that don't have those artifacts.
+  await sanitizeDocxFile(workingPath).catch((err) => {
+    console.warn(
+      `[workspace] initial sanitize failed for ${id}:`,
+      (err as Error).message,
+    );
+  });
+
   // Metadata.
   const metadata = {
     createdAt: createdAt.toISOString(),
@@ -192,7 +205,7 @@ export async function createWorkspace(opts: {
 // repo stays self-contained.
 // =============================================================================
 
-const README_AGENT = [
+export const README_AGENT = [
   "# Agent Workspace",
   "",
   "Read HEADLESS_WORD_SKILL.md before making structural or formatting-sensitive edits.",
@@ -245,7 +258,7 @@ const README_AGENT = [
   "- Update agent_notes.md before you finish.",
 ].join("\n");
 
-const HEADLESS_WORD_SKILL = [
+export const HEADLESS_WORD_SKILL = [
   "# Headless Word Skill Notes",
   "",
   "These are distilled usage notes for this workspace's DOCX runtime and helper wrapper.",
@@ -494,6 +507,23 @@ export const AUTO_REFRESH_SNAPSHOT_FILES = new Set([
   "document_text.current.json",
   "document_structure.current.json",
 ]);
+
+/**
+ * Reads the current (freshly-refreshed) document text snapshot. Used to
+ * inline document state into the agent's system prompt at turn start, so
+ * the agent doesn't burn three parallel tool calls on README / SKILL /
+ * document_text reads at the top of every turn.
+ */
+export async function loadCurrentDocumentText(ws: Workspace): Promise<string | null> {
+  try {
+    return await readFile(
+      path.join(ws.dir, "document_text.current.json"),
+      "utf-8",
+    );
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Re-generates `document_text.current.json` and `document_structure.current.json`

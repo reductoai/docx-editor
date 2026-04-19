@@ -1,3 +1,4 @@
+import { Streamdown } from "streamdown";
 import StreamCursor from "./StreamCursor";
 
 interface Props {
@@ -6,18 +7,15 @@ interface Props {
 }
 
 /**
- * A streamable text block. The driver feeds progressively-longer strings while
- * `streaming` is true; once the final slice arrives it flips to false and the
- * blinking cursor is removed.
- *
- * The scripted corpus contains a small amount of inline <strong>/<em>/<br>
- * markup, which we render via dangerouslySetInnerHTML since the source is
- * trusted (it's our own scripted content — not agent-authored HTML).
+ * A streamable text block. Agent responses are markdown — lists, bold,
+ * inline code, code fences — so we render via `streamdown`, which is
+ * built for progressively-arriving markdown (parses tolerantly while
+ * tokens are still landing).
  */
 export default function TextBlock({ text, streaming }: Props) {
   return (
     <div className="msg-text">
-      <span dangerouslySetInnerHTML={{ __html: text }} />
+      <Streamdown>{text}</Streamdown>
       {streaming && <StreamCursor />}
     </div>
   );

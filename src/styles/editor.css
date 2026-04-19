@@ -295,6 +295,87 @@
   overflow: hidden;
 }
 
+/* Expandable variants: the inner <button> strips browser defaults so the
+   pill shell visually looks identical until the user clicks. */
+.tool-pill__toggle,
+.tool-pill .tp-top--button {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  width: 100%;
+}
+.tool-pill__toggle:disabled,
+.tool-pill .tp-top--button:disabled {
+  cursor: default;
+}
+.tool-pill--clickable {
+  /* Collapse the outer pill's padding so the button can own it and the
+     whole surface becomes clickable. The button re-adds the padding via
+     inherit. */
+  padding: 0;
+}
+.tool-pill--clickable .tool-pill__toggle {
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+}
+.tool-pill--clickable:hover:not(.tool-pill--expanded) {
+  background: var(--surface-hover);
+}
+.tool-pill--expanded {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  border-radius: 10px;
+}
+.tool-pill--expanded .tool-pill__toggle {
+  border-bottom: 0.5px solid var(--grey-200);
+  border-radius: 10px 10px 0 0;
+  padding: 6px 10px;
+}
+.tp-chevron {
+  margin-left: auto;
+  display: inline-flex;
+  color: var(--fg-secondary);
+  transition: transform 120ms ease;
+}
+.tp-chevron--open {
+  transform: rotate(180deg);
+}
+.tool-pill__details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px 10px;
+  background: var(--surface);
+}
+.tool-pill__section-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-secondary);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.tool-pill__code {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--grey-800);
+  background: var(--grey-100);
+  border: 0.5px solid var(--grey-200);
+  border-radius: 6px;
+  padding: 6px 8px;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Spinner for working tool pill */
 .tp-spinner {
   width: 11px;
@@ -564,6 +645,9 @@
 .composer-send--stop:hover {
   background: var(--grey-900);
 }
+.composer-model-wrap {
+  position: relative;
+}
 .composer-model {
   display: inline-flex;
   align-items: center;
@@ -574,9 +658,58 @@
   color: var(--fg-secondary);
   cursor: pointer;
   user-select: none;
+  background: transparent;
+  border: 0;
+  font-family: inherit;
 }
-.composer-model:hover {
+.composer-model:hover:not(:disabled) {
   background: var(--surface-hover);
+}
+.composer-model:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.composer-model-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.composer-model-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  color: var(--fg-primary);
+}
+.composer-model-option:hover {
+  background: var(--surface-hover);
+}
+.composer-model-option--selected {
+  background: var(--surface-hover);
+}
+.composer-model-option__label {
+  font-size: 12px;
+  font-weight: 500;
+}
+.composer-model-option__tagline {
+  font-size: 10px;
+  color: var(--fg-secondary);
 }
 
 /* -----------------------------------------------------------------------------
