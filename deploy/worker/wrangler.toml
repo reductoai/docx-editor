@@ -1,0 +1,17 @@
+name = "docx-editor"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[assets]
+directory = "public"
+
+[[kv_namespaces]]
+binding = "SANDBOX_MAP"
+id = "9c9f6f8199284fedba0338df4c763141"
+
+[vars]
+E2B_TEMPLATE = "docx-editor"
+
+# Custom domain: labs.reducto.ai (auto-provisioned via Workers Custom Domains API)

@@ -9,3 +9,7 @@ workspaces/
 *.log
 reference/
 design/
+deploy/e2b/server.js
+deploy/e2b/workspace_tool.py
+deploy/worker/public/
+deploy/worker/node_modules/

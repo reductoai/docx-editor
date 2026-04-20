@@ -1,0 +1,4 @@
+# E2B sandbox template for docx-editor
+# template_id is set after first `e2b template build`
+dockerfile = "e2b.Dockerfile"
+template_name = "docx-editor"

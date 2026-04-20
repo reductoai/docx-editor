@@ -9,7 +9,7 @@ export default function ChatHeader({ subtitle, onToggleTweaks }: Props) {
   return (
     <div className="chat-header">
       <div className="ch-logo">
-        <img src="/assets/logomark.svg" alt="" style={{ width: 18, height: 18 }} />
+        <img src={`${import.meta.env.BASE_URL}assets/logomark.svg`} alt="" style={{ width: 18, height: 18 }} />
       </div>
       <div>
         <div className="ch-title">Reducto Editor</div>
