@@ -124,7 +124,14 @@ export interface TrackedChangeEntry {
   date?: string;
   from: number;
   to: number;
+  /** Primary revision id used for anchoring, replies, and sidebar identity. */
   revisionId: number;
-  /** For replacements: the insertion part's revisionId (different from the deletion's) */
+  /** All raw OOXML revision ids represented by this logical change entry. */
+  revisionIds?: number[];
+  /** For replacements: the insertion-side raw revision ids. */
+  insertionRevisionIds?: number[];
+  /** For deletions/replacements: the deletion-side raw revision ids. */
+  deletionRevisionIds?: number[];
+  /** Back-compat convenience: first insertion-side revision id, if any. */
   insertionRevisionId?: number;
 }

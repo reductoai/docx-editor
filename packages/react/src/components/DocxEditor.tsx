@@ -919,7 +919,11 @@ export const DocxEditor = forwardRef<DocxEditorRef, DocxEditorProps>(function Do
   // (the source of truth, including remote ySync updates) rather than a debounced
   // copy in React state.
   const [pmState, setPmState] = useState<PMEditorState | null>(null);
-  const { entries: trackedChanges, commentToRevision } = useTrackedChanges(pmState);
+  const {
+    entries: trackedChanges,
+    commentToRevision,
+    revisionIdToPrimary,
+  } = useTrackedChanges(pmState);
   const [anchorPositions, setAnchorPositions] =
     useState<Map<string, number>>(EMPTY_ANCHOR_POSITIONS);
   // No separate state needed — pluginRenderedDomContext comes from PluginHost
@@ -989,15 +993,23 @@ export const DocxEditor = forwardRef<DocxEditorRef, DocxEditorProps>(function Do
     [isControlledComments]
   );
 
-  // Thread comments under their overlapping tracked change (parentId = revisionId).
-  // The overlap map is computed in the same doc walk as `extractTrackedChanges`
-  // so we don't pay for a second descendants() pass per transaction.
+  // Thread comments under their overlapping tracked change (parentId = the
+  // grouped entry's primary revision id). Also normalize any previously stored
+  // alias revision ids onto the primary id so replies stay attached after we
+  // fold LibreOffice-style multi-fragment replacements into one sidebar card.
   useEffect(() => {
-    if (commentToRevision.size === 0) return;
+    if (commentToRevision.size === 0 && revisionIdToPrimary.size === 0) return;
     setComments((prev) => {
       let changed = false;
       const updated = prev.map((c) => {
-        if (c.parentId != null) return c; // already threaded
+        if (c.parentId != null) {
+          const primaryRevisionId = revisionIdToPrimary.get(c.parentId);
+          if (primaryRevisionId != null && primaryRevisionId !== c.parentId) {
+            changed = true;
+            return { ...c, parentId: primaryRevisionId };
+          }
+          return c;
+        }
         const rid = commentToRevision.get(c.id);
         if (rid != null) {
           changed = true;
@@ -1007,7 +1019,7 @@ export const DocxEditor = forwardRef<DocxEditorRef, DocxEditorProps>(function Do
       });
       return changed ? updated : prev;
     });
-  }, [commentToRevision, setComments]);
+  }, [commentToRevision, revisionIdToPrimary, setComments]);
 
   // Remove comments whose marks no longer exist in the document
   const cleanOrphanedComments = useCallback(() => {
@@ -3719,14 +3731,23 @@ body { background: white; }
     return items;
   }, [showCommentsSidebar, commentSidebarItems, pluginSidebarItems]);
 
-  // Build a map from insertion revisionIds to sidebar item IDs for replacement tracked changes.
-  // This allows clicking the insertion part of a replacement to activate the same sidebar card.
+  // Build a map from every grouped raw revision id to the owning sidebar item.
+  // This lets the UI treat any deletion fragment / insertion fragment in a
+  // grouped replacement as the same logical card.
   const revisionIdAliases = useMemo(() => {
     const map = new Map<string, string>();
     trackedChanges.forEach((change, idx) => {
-      if (change.type === 'replacement' && change.insertionRevisionId != null) {
-        map.set(String(change.insertionRevisionId), `tc-${change.revisionId}-${idx}`);
-      }
+      const itemId = `tc-${change.revisionId}-${idx}`;
+      const revisionIds = new Set<number>([
+        ...(change.revisionIds ?? [change.revisionId]),
+        ...(change.deletionRevisionIds ?? []),
+        ...(change.insertionRevisionIds ?? []),
+      ]);
+      if (change.insertionRevisionId != null) revisionIds.add(change.insertionRevisionId);
+      if (revisionIds.size === 0) revisionIds.add(change.revisionId);
+      revisionIds.forEach((revisionId) => {
+        map.set(String(revisionId), itemId);
+      });
     });
     return map;
   }, [trackedChanges]);
@@ -4005,13 +4026,50 @@ body { background: white; }
                         (() => {
                           const revId = expandedSidebarItem.split('-')[1];
                           const tc = trackedChanges.find((c) => String(c.revisionId) === revId);
-                          const insRevId = tc?.insertionRevisionId;
-                          return (
-                            <style>{`
-                            .paged-editor__pages .docx-insertion[data-revision-id="${insRevId ?? revId}"] { background-color: rgba(52, 168, 83, 0.2) !important; border-bottom: 2px solid #2e7d32 !important; }
-                            .paged-editor__pages .docx-deletion[data-revision-id="${revId}"] { background-color: rgba(211, 47, 47, 0.2) !important; text-decoration-thickness: 2px !important; }
-                          `}</style>
+                          if (!tc) return null;
+
+                          const deletionIds = Array.from(
+                            new Set(
+                              tc.deletionRevisionIds ??
+                                (tc.type === 'deletion' ? (tc.revisionIds ?? [tc.revisionId]) : [])
+                            )
                           );
+                          const insertionIds = Array.from(
+                            new Set(
+                              tc.insertionRevisionIds ??
+                                (tc.type === 'insertion'
+                                  ? (tc.revisionIds ?? [tc.revisionId])
+                                  : tc.insertionRevisionId != null
+                                    ? [tc.insertionRevisionId]
+                                    : [])
+                            )
+                          );
+
+                          const deletionSelector = deletionIds
+                            .map(
+                              (id) =>
+                                `.paged-editor__pages .docx-deletion[data-revision-id="${id}"]`
+                            )
+                            .join(', ');
+                          const insertionSelector = insertionIds
+                            .map(
+                              (id) =>
+                                `.paged-editor__pages .docx-insertion[data-revision-id="${id}"]`
+                            )
+                            .join(', ');
+
+                          const rules = [
+                            insertionSelector
+                              ? `${insertionSelector} { background-color: rgba(52, 168, 83, 0.2) !important; border-bottom: 2px solid #2e7d32 !important; }`
+                              : '',
+                            deletionSelector
+                              ? `${deletionSelector} { background-color: rgba(211, 47, 47, 0.2) !important; text-decoration-thickness: 2px !important; }`
+                              : '',
+                          ]
+                            .filter(Boolean)
+                            .join('\n');
+
+                          return rules ? <style>{rules}</style> : null;
                         })()}
                       <PagedEditor
                         ref={pagedEditorRef}
@@ -4069,18 +4127,10 @@ body { background: white; }
                                 mark.attrs.revisionId != null
                               ) {
                                 const revId = String(mark.attrs.revisionId);
-                                const prefix = `tc-${revId}-`;
-                                let match = commentSidebarItems.find((i) =>
-                                  i.id.startsWith(prefix)
-                                );
-                                // Insertion side of a replacement has a different revisionId;
-                                // check alias map to find the correct sidebar card.
-                                if (!match && revisionIdAliases) {
-                                  const aliasedId = revisionIdAliases.get(revId);
-                                  if (aliasedId) {
-                                    match = commentSidebarItems.find((i) => i.id === aliasedId);
-                                  }
-                                }
+                                const itemId = revisionIdAliases.get(revId);
+                                const match = itemId
+                                  ? commentSidebarItems.find((i) => i.id === itemId)
+                                  : undefined;
                                 if (match) {
                                   cursorSidebarItem = match.id;
                                   break;
